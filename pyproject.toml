@@ -18,3 +18,8 @@ dependencies = [
 build = [
     "pyinstaller>=6.18.0",
 ]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+]

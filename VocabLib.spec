@@ -5,8 +5,8 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[],
-    datas=[('credentials.json', '.'), ('.env', '.')],
-    hiddenimports=['src.app', 'src.config', 'src.sheets_client', 'src.ollama_client'],
+    datas=[('.env', '.'), ('credentials.json', '.')],
+    hiddenimports=['src.app', 'src.config', 'src.sheets_client', 'src.ollama_client', 'src.spaced_repetition'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -16,12 +16,12 @@ a = Analysis(
 )
 pyz = PYZ(a.pure)
 
+# onedir モード: EXE にはバイナリ/データを含めず、COLLECT で配置する
 exe = EXE(
     pyz,
     a.scripts,
-    a.binaries,
-    a.datas,
     [],
+    exclude_binaries=True,
     name='VocabLib',
     debug=False,
     bootloader_ignore_signals=False,
@@ -36,12 +36,25 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
 )
-app = BUNDLE(
+
+coll = COLLECT(
     exe,
+    a.binaries,
+    a.datas,
+    strip=False,
+    upx=True,
+    upx_exclude=[],
+    name='VocabLib',
+)
+
+app = BUNDLE(
+    coll,
     name='VocabLib.app',
     icon=None,
     bundle_identifier='com.yujikatagi.vocablib',
     info_plist={
         'LSUIElement': True,
+        'CFBundleShortVersionString': '0.1.0',
+        'NSHighResolutionCapable': True,
     },
 )
