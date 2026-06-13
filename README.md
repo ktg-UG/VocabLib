@@ -1,296 +1,200 @@
-# VocabLib - 英単語暗記メニューバーアプリ
+# VocabLib
 
-macOSのメニューバーに常駐し、5分おきに英単語の4択クイズをポップアップ表示するアプリケーションです。
+> PC作業中に英単語が自動で問われる、macOSメニューバー常駐の反復学習アプリ
 
-## 機能
+![Python](https://img.shields.io/badge/Python-3.12-blue)
+![Platform](https://img.shields.io/badge/Platform-macOS-lightgrey)
+![License](https://img.shields.io/badge/License-MIT-green)
 
-- 📚 Google Spread Sheetから英単語を自動取得
-- 🤖 Ollamaを使った自然な4択問題生成（オプション）
-- ⏰ 5分間隔で自動的にクイズを出題
-- 🍎 macOSメニューバーに常駐
-- 📊 学習統計の記録
+---
 
-## セットアップ
+## 📌 プロジェクト概要
 
-### 1. 必要なソフトウェア
+VocabLib は macOS のメニューバーに常駐し、設定した間隔で自動的に英単語の4択クイズを出題するアプリです。
+Google Spreadsheet に登録した単語を学習データとして使用し、**SuperMemo 2（SM-2）アルゴリズム**による忘却曲線で各単語の最適な復習タイミングを自動管理します。
+不正解時はローカル LLM（Ollama）が記憶科学に基づいた例文をリアルタイム生成し、単語の定着を促します。
 
-- Python 3.11以上
-- [uv](https://github.com/astral-sh/uv) - 高速Pythonパッケージマネージャー
-- Ollama（オプション：より高度な問題生成に使用）
+---
 
-### 2. uvのインストール
+## 🎯 開発背景・動機
 
-```bash
-# Homebrewでインストール
-brew install uv
+英語習得において最も重要なのは**反復**だと考えている。しかし既存のスマホ単語アプリには2つの問題があった。
 
-# または
-curl -LsSf https://astral.sh/uv/install.sh | sh
+1. **能動的に開かなければならない** — 「アプリを開く」というアクションが必要なため、続かない
+2. **SNSの誘惑** — スマホにはInstagramやYouTubeなど他に開きたいアプリがあり、学習アプリを開く動機が薄れる
+
+一方、私は一日の中でPCに触れている時間が最も長い。
+**PCで作業している時間に、強制的に単語と向き合わせる仕組みを作れないか** という発想から開発した。
+
+メニューバーに常駐することで「アプリを開く」という手間をゼロにし、設定間隔で自動出題することでユーザーの意思に依存しない反復学習を実現した。
+あわせて、ローカル LLM である Ollama を実際のプロダクトに組み込む経験も得たかった。
+
+---
+
+## ✨ 主な機能
+
+- **自動出題** — 設定した間隔（デフォルト5分）でメニューバーからクイズが自動表示される
+- **忘却曲線管理（SM-2）** — 正誤に応じて次回出題タイミングを自動調整。苦手な単語ほど短い間隔で再出題される
+- **AI例文生成** — 不正解時に Ollama が「短く・具体的・記憶に残りやすい」例文をリアルタイム生成し表示
+- **Google Sheets 連携** — 自分の単語帳はスプレッドシートで管理。学習履歴もシートに自動書き込み
+- **非破壊的UI** — Dock・アプリスイッチャーに表示されず、作業の邪魔をしない
+
+---
+
+## 🧑‍💻 自身の担当工程・実装範囲
+
+完全個人開発。要件定義から運用配布まで全工程を単独で担当した。
+
+### 担当工程
+
+- [x] **課題発見・要件定義**: PC作業中の反復学習という自分の課題から仕様策定
+- [x] **アーキテクチャ設計**: メニューバー常駐 + 外部スプレッドシート + ローカルLLM の構成設計
+- [x] **実装**: rumps/PyObjC によるネイティブメニューバー UI、SM-2 アルゴリズム、Ollama 連携、Google Sheets I/O
+- [x] **配布パッケージング**: PyInstaller による `.app` バンドル化、`VocabLib.spec` 設定
+- [x] **運用**: 自分自身の単語帳での日次運用、フィードバックループ
+
+### 具体的な実装ファイル
+
+| ファイル | 内容 |
+|---|---|
+| `src/app.py` | メニューバーアプリ本体。rumps + PyObjC でクイズパネル UI、自動出題タイマー、`NSPanel` での非ブロッキング表示 |
+| `src/spaced_repetition.py` | **SM-2 アルゴリズム実装**。ease_factor / interval / repetitions の更新ロジック |
+| `src/sheets_client.py` | Google Sheets API v4 クライアント。OAuth 2.0 認証、単語と学習履歴の双方向同期 |
+| `src/ollama_client.py` | Ollama HTTP API クライアント。**非同期での例文生成**、`PyObjCTools.AppHelper.callAfter` でメインスレッドへ委譲 |
+| `src/config.py` | 環境変数読み込み（`GOOGLE_SHEET_ID`、`AUTO_START_QUIZ` 等） |
+| `VocabLib.spec` | PyInstaller ビルド設定 |
+
+---
+
+## 🛠 使用技術・アーキテクチャ
+
+### 技術スタック
+
+| カテゴリ | 技術 |
+|----------|------|
+| 言語 | Python 3.12 |
+| macOS UI | rumps, PyObjC（NSPanel, NSNotificationCenter 等） |
+| 配布 | PyInstaller（.app バンドル） |
+| パッケージ管理 | uv |
+
+### AI / 外部API
+
+| 区分 | 内容 |
+|------|------|
+| ローカルLLM | **Ollama**（`llama2` 等のローカル実行モデル）。HTTP API（`localhost:11434/api/generate`）経由で呼び出し |
+| LLM 用途 | 不正解時の **記憶定着用例文の自動生成**（5〜10語の短文、具体的情景、驚き/ユーモアを含む） |
+| プロンプト設計 | 記憶科学（視覚的エンコーディング・感情記憶）に基づき、単語と意味を渡して短文生成を指示。生成例文は Sheets にキャッシュし2回目以降は即時表示 |
+| フォールバック | Ollama 未起動時は `"word" means "meaning"` 形式で動作継続（LLMに依存しない設計） |
+| 外部API | **Google Sheets API v4**（OAuth 2.0、ローカル `credentials.json` / `token.json` で認証） |
+| API 用途 | 単語帳の読み込み、ease_factor / 次回出題日時 / 例文キャッシュの書き戻し |
+
+### アーキテクチャ（データフロー）
+
+```
+┌─────────────────────────────────┐
+│ macOS メニューバー (rumps)       │
+│   タイマー（5分間隔、設定可）    │
+└──────────────┬──────────────────┘
+               │ tick
+               ▼
+┌─────────────────────────────────┐
+│ SM-2 スケジューラ                 │
+│  spaced_repetition.py           │
+│  → 次に出題する単語を決定        │
+└──────────────┬──────────────────┘
+               │
+               ▼
+┌─────────────────────────────────┐      ┌──────────────────────┐
+│ クイズパネル (PyObjC NSPanel)   │◀────│ Google Sheets API v4 │
+│  4択 UI を表示                   │ 単語  │  単語帳 + 学習履歴   │
+└──────────────┬──────────────────┘      └──────────────────────┘
+               │ 不正解時のみ
+               ▼
+┌─────────────────────────────────┐      ┌──────────────────────┐
+│ Ollama API (localhost:11434)    │◀────│  ローカルLLM        │
+│  非同期スレッドで例文生成        │      │  (llama2 等)         │
+└──────────────┬──────────────────┘      └──────────────────────┘
+               │ callAfter → メインスレッド
+               ▼
+        パネルに例文表示
+        + Sheets にキャッシュ書き戻し
 ```
 
-### 3. プロジェクトのセットアップ
+### 実装方法のポイント
+
+- **非破壊的UI**: `LSUIElement=true` を `.app` バンドル設定に入れ、Dock とアプリスイッチャーから非表示化。`NSPanel` の `becomesKeyOnlyIfNeeded` を活用し、ユーザーの作業フォーカスを奪わない
+- **非同期LLM呼び出し**: Ollama 応答（数秒〜十数秒）が UI をブロックしないよう、`threading.Thread` でリクエスト発行 → `PyObjCTools.AppHelper.callAfter` でメインスレッドに UI 更新を委譲
+- **オフライン耐性**: Ollama 未起動・ネットワーク断時もアプリ自体は動作し続ける（フォールバック例文）
+- **再現性ある単語帳管理**: 単語帳をローカルDBではなく Google Sheets に置くことで、ユーザーが普段のエディタで自由に追加・編集できる UX を実現
+
+---
+
+## 🔍 工夫した点・技術的チャレンジ
+
+### SM-2アルゴリズムの実装
+
+単純に「ランダム出題」するだけでは非効率な反復になるため、認知科学の忘却曲線に基づく **SuperMemo 2（SM-2）** アルゴリズムを実装した。
+正解時は復習間隔を指数的に延ばし（1日→6日→ease_factor倍）、不正解時は5分後に再出題するリセット処理を行う。
+単語の「覚えやすさ（ease_factor）」は問題ごとに個別管理し、苦手な単語には短い間隔で繰り返し触れられるようにした。
+
+### Ollama による非同期例文生成と UI 更新
+
+例文生成は Ollama API への HTTP リクエストを伴うため、UI をブロックしないようバックグラウンドスレッドで実行した。
+生成中は「💡 例文を生成中...」を表示し、完了後に `PyObjCTools.AppHelper.callAfter` でメインスレッドに委譲してラベルを更新する。生成された例文は Google Sheets にキャッシュし、2回目以降は即時表示されるよう設計した。
+Ollama が未起動の場合は `"word" means "meaning"` 形式のフォールバックに自動切り替えし、LLMに依存しない動作を保証した。
+
+### 例文プロンプトの設計（記憶科学ベース）
+
+ただ例文を生成するのではなく、**なぜその例文が記憶に残るか**を言語化した上でプロンプトを設計した。
+5〜10語の短文・具体的な情景・驚きやユーモアを含む内容にすることで視覚的エンコーディングと感情的記憶の定着効果を狙っている。
+
+---
+
+## 📊 成果
+
+- 2025年10月から約1ヶ月で設計・実装・PyInstaller による `.app` 配布形式まで完成
+- Google Sheets を単語帳として使うことで、単語の追加・編集が外部アプリ不要
+- `AUTO_START_QUIZ=true` 設定でPC起動と同時に学習が始まり、意識せず反復が続く環境を実現
+
+---
+
+## 🚀 セットアップ
 
 ```bash
-# リポジトリをクローン（または作成）
-cd /path/to/VocabLib
-
-# 依存関係をインストール
+# 依存関係のインストール
 uv sync
-```
 
-### 4. Ollamaのインストール（オプション）
-
-より高度な問題生成を使いたい場合：
-
-```bash
-# Homebrewでインストール
-brew install ollama
-
-# Ollamaを起動
-ollama serve
-
-# モデルをダウンロード（別ターミナルで）
-ollama pull llama2
-```
-
-### 5. Google Sheets APIの設定
-
-#### Google Cloud Consoleでの設定
-
-1. [Google Cloud Console](https://console.cloud.google.com/)にアクセス
-2. 新しいプロジェクトを作成
-3. 「APIとサービス」→「ライブラリ」から「Google Sheets API」を検索して有効化
-4. 「認証情報」→「認証情報を作成」→「OAuth クライアント ID」を選択
-5. アプリケーションの種類を「デスクトップアプリ」として作成
-6. 作成した認証情報のJSONをダウンロード
-7. ダウンロードしたファイルを `credentials.json` としてプロジェクトルートに保存
-
-#### スプレッドシートの作成
-
-1. [Google Sheets](https://sheets.google.com/)で新しいスプレッドシートを作成
-2. 以下の形式でデータを入力：
-
-| A列（英単語） | B列（日本語訳） |
-|--------------|----------------|
-| apple        | りんご          |
-| book         | 本             |
-| computer     | コンピューター   |
-| study        | 勉強する        |
-| water        | 水             |
-
-3. スプレッドシートのURLからIDをコピー
-   - URL: `https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit`
-   - `SPREADSHEET_ID`の部分をコピー
-
-### 6. 環境変数の設定
-
-`.env` ファイルをプロジェクトルートに作成：
-
-```bash
-# .env.exampleをコピー
+# 単語スプレッドシートのIDとGoogle認証情報を設定
 cp .env.example .env
-```
+# .env に GOOGLE_SHEET_ID を記入し、credentials.json を配置
 
-`.env`ファイルを編集：
-
-```bash
-# Google Sheets設定
-GOOGLE_SHEET_ID=あなたのスプレッドシートID
-GOOGLE_CREDENTIALS_PATH=./credentials.json
-
-# Ollama設定（オプション）
-OLLAMA_HOST=http://localhost:11434
-OLLAMA_MODEL=llama2
-
-# アプリ設定
-QUIZ_INTERVAL_MINUTES=5
-```
-
-## 起動方法
-
-```bash
-# uvで実行
-uv run python main.py
-
-# または仮想環境をアクティベートして実行
-source .venv/bin/activate
+# 起動
 python main.py
 ```
 
-メニューバーに📚アイコンが表示されます。
+初回起動時にブラウザが開き、Google アカウントの認証を求めます。認証後は `token.json` が保存され、以降は自動ログインになります。
 
-### 初回起動時
+---
 
-1. Google認証画面がブラウザで開きます
-2. Googleアカウントでログイン
-3. アクセスを許可
-4. 認証情報が `token.json` に保存されます（次回から不要）
-
-## 使い方
-
-### メニュー項目
-
-- **今すぐクイズ**: すぐにクイズを表示
-- **自動クイズ: オン/オフ**: 定期的なクイズのオン/オフを切り替え
-- **単語を再読み込み**: Google Sheetsから単語リストを再読み込み
-- **統計**: 正解率などの学習統計を表示
-- **終了**: アプリを終了
-
-### クイズの回答
-
-1. ポップアップウィンドウが表示されたら、1-4の数字を入力
-2. 「回答」ボタンをクリック
-3. 正解/不正解の通知が表示されます
-
-## 自動起動の設定
-
-macOS起動時に自動的にVocabLibを起動するには：
-
-### 方法1: ログイン項目に追加
-
-1. 起動スクリプトを作成：
-
-```bash
-# start_vocablib.command を作成
-cat > ~/start_vocablib.command << 'EOF'
-#!/bin/bash
-cd /Users/YOUR_USERNAME/C_personal/VocabLib
-/opt/homebrew/bin/uv run python main.py
-EOF
-
-chmod +x ~/start_vocablib.command
-```
-
-2. 「システム環境設定」→「一般」→「ログイン項目」
-3. 「+」ボタンをクリックして、`start_vocablib.command`を追加
-
-### 方法2: LaunchAgent（推奨）
-
-
-```bash
-# ~/Library/LaunchAgents/com.vocablib.plist を作成
-cat > ~/Library/LaunchAgents/com.vocablib.plist << 'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-    <key>Label</key>
-    <string>com.vocablib</string>
-    <key>ProgramArguments</key>
-    <array>
-        <string>/opt/homebrew/bin/uv</string>
-        <string>run</string>
-        <string>python</string>
-        <string>/Users/YOUR_USERNAME/C_personal/VocabLib/main.py</string>
-    </array>
-    <key>WorkingDirectory</key>
-    <string>/Users/YOUR_USERNAME/C_personal/VocabLib</string>
-    <key>RunAtLoad</key>
-    <true/>
-    <key>KeepAlive</key>
-    <true/>
-    <key>StandardOutPath</key>
-    <string>/tmp/vocablib.log</string>
-    <key>StandardErrorPath</key>
-    <string>/tmp/vocablib.error.log</string>
-</dict>
-</plist>
-EOF
-
-# LaunchAgentを読み込む
-launchctl load ~/Library/LaunchAgents/com.vocablib.plist
-
-# 停止したい場合
-# launchctl unload ~/Library/LaunchAgents/com.vocablib.plist
-```
-
-## プロジェクト構造
+## 📁 ディレクトリ構成
 
 ```
 VocabLib/
-├── .env                  # 環境変数（gitignoreに含まれる）
-├── .env.example          # 環境変数のサンプル
-├── .gitignore
-├── credentials.json      # Google API認証情報（gitignoreに含まれる）
-├── token.json           # Google認証トークン（自動生成）
-├── main.py              # エントリーポイント
-├── pyproject.toml       # プロジェクト設定
-├── README.md
-├── .venv/               # 仮想環境（自動生成）
-└── src/
-    ├── __init__.py
-    ├── app.py           # メインアプリケーション
-    ├── config.py        # 設定
-    ├── sheets_client.py # Google Sheets連携
-    └── ollama_client.py # Ollama連携
+├── main.py                  # エントリーポイント
+├── src/
+│   ├── app.py               # メニューバーアプリ本体（rumps + PyObjC）
+│   ├── sheets_client.py     # Google Sheets 読み書き・SM-2管理
+│   ├── ollama_client.py     # Ollama API クライアント（クイズ・例文生成）
+│   ├── spaced_repetition.py # SM-2アルゴリズム実装
+│   └── config.py            # 環境変数読み込み
+├── VocabLib.spec            # PyInstaller ビルド設定
+└── .env.example
 ```
 
-## トラブルシューティング
+---
 
-### Q: クイズが表示されない
+## 👤 開発体制
 
-**確認事項:**
-- `.env`ファイルが正しく設定されているか
-- `credentials.json`が存在するか
-- スプレッドシートIDが正しいか
-- Google Sheetsに単語データが入力されているか
-
-**デバッグ方法:**
-```bash
-# ターミナルでログを確認しながら起動
-uv run python main.py
-```
-
-### Q: Google認証でエラーが出る
-
-- `credentials.json`が正しいOAuth 2.0クライアントIDのものか確認
-- `token.json`を削除して再認証を試す
-- Google Cloud Consoleで「Google Sheets API」が有効になっているか確認
-
-### Q: 「単語が読み込まれていません」エラー
-
-- スプレッドシートが正しく共有されているか確認（OAuth認証の場合は自分のアカウント）
-- スプレッドシートのシート名が `Sheet1` であるか確認
-  - 別の名前の場合は`.env`で`GOOGLE_SHEET_RANGE`を変更
-
-### Q: メニューバーアイコンが表示されない
-
-- macOSのアクセシビリティ権限を確認
-- Pythonのバージョンを確認: `python --version`（3.11以上）
-- rumpsが正しくインストールされているか: `uv run python -c "import rumps; print(rumps.__version__)"`
-
-### Q: Ollama関連のエラー
-
-Ollamaは**オプション**です。現在のコードではシンプルな問題生成を使用しているため、Ollamaがなくても動作します。
-
-## 開発
-
-### 依存関係の追加
-
-```bash
-uv add パッケージ名
-```
-
-### コードの整形
-
-```bash
-uv run black src/
-uv run isort src/
-```
-
-## 今後の改善予定
-
-- [x] 基本的なメニューバーアプリ
-- [x] Google Sheets連携
-- [x] 学習統計機能
-- [ ] Ollamaを使った高度な問題生成
-- [ ] 間違えた単語の復習機能
-- [ ] クイズ間隔のカスタマイズUI
-- [ ] ダークモード対応のポップアップデザイン
-- [ ] 音声読み上げ機能
-- [ ] データベースに学習履歴を保存
-
-## ライセンス
-
-MIT License
-
+- **開発形態**: 個人開発
+- **開発期間**: 1ヶ月（2025年10月 〜 2025年11月）
+- **対応環境**: macOS（Apple Silicon）
