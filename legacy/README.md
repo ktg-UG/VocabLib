@@ -47,22 +47,22 @@ Google Spreadsheet に登録した単語を学習データとして使用し、*
 
 ### 担当工程
 
-- [x] **課題発見・要件定義**: PC作業中の反復学習という自分の課題から仕様策定
-- [x] **アーキテクチャ設計**: メニューバー常駐 + 外部スプレッドシート + ローカルLLM の構成設計
-- [x] **実装**: rumps/PyObjC によるネイティブメニューバー UI、SM-2 アルゴリズム、Ollama 連携、Google Sheets I/O
-- [x] **配布パッケージング**: PyInstaller による `.app` バンドル化、`VocabLib.spec` 設定
-- [x] **運用**: 自分自身の単語帳での日次運用、フィードバックループ
+- [X] **課題発見・要件定義**: PC作業中の反復学習という自分の課題から仕様策定
+- [X] **アーキテクチャ設計**: メニューバー常駐 + 外部スプレッドシート + ローカルLLM の構成設計
+- [X] **実装**: rumps/PyObjC によるネイティブメニューバー UI、SM-2 アルゴリズム、Ollama 連携、Google Sheets I/O
+- [X] **配布パッケージング**: PyInstaller による `.app` バンドル化、`VocabLib.spec` 設定
+- [X] **運用**: 自分自身の単語帳での日次運用、フィードバックループ
 
 ### 具体的な実装ファイル
 
-| ファイル | 内容 |
-|---|---|
-| `src/app.py` | メニューバーアプリ本体。rumps + PyObjC でクイズパネル UI、自動出題タイマー、`NSPanel` での非ブロッキング表示 |
-| `src/spaced_repetition.py` | **SM-2 アルゴリズム実装**。ease_factor / interval / repetitions の更新ロジック |
-| `src/sheets_client.py` | Google Sheets API v4 クライアント。OAuth 2.0 認証、単語と学習履歴の双方向同期 |
-| `src/ollama_client.py` | Ollama HTTP API クライアント。**非同期での例文生成**、`PyObjCTools.AppHelper.callAfter` でメインスレッドへ委譲 |
-| `src/config.py` | 環境変数読み込み（`GOOGLE_SHEET_ID`、`AUTO_START_QUIZ` 等） |
-| `VocabLib.spec` | PyInstaller ビルド設定 |
+| ファイル                     | 内容                                                                                                                   |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `src/app.py`               | メニューバーアプリ本体。rumps + PyObjC でクイズパネル UI、自動出題タイマー、`NSPanel` での非ブロッキング表示         |
+| `src/spaced_repetition.py` | **SM-2 アルゴリズム実装**。ease_factor / interval / repetitions の更新ロジック                                   |
+| `src/sheets_client.py`     | Google Sheets API v4 クライアント。OAuth 2.0 認証、単語と学習履歴の双方向同期                                          |
+| `src/ollama_client.py`     | Ollama HTTP API クライアント。**非同期での例文生成**、`PyObjCTools.AppHelper.callAfter` でメインスレッドへ委譲 |
+| `src/config.py`            | 環境変数読み込み（`GOOGLE_SHEET_ID`、`AUTO_START_QUIZ` 等）                                                        |
+| `VocabLib.spec`            | PyInstaller ビルド設定                                                                                                 |
 
 ---
 
@@ -70,23 +70,23 @@ Google Spreadsheet に登録した単語を学習データとして使用し、*
 
 ### 技術スタック
 
-| カテゴリ | 技術 |
-|----------|------|
-| 言語 | Python 3.12 |
-| macOS UI | rumps, PyObjC（NSPanel, NSNotificationCenter 等） |
-| 配布 | PyInstaller（.app バンドル） |
-| パッケージ管理 | uv |
+| カテゴリ       | 技術                                              |
+| -------------- | ------------------------------------------------- |
+| 言語           | Python 3.12                                       |
+| macOS UI       | rumps, PyObjC（NSPanel, NSNotificationCenter 等） |
+| 配布           | PyInstaller（.app バンドル）                      |
+| パッケージ管理 | uv                                                |
 
 ### AI / 外部API
 
-| 区分 | 内容 |
-|------|------|
-| ローカルLLM | **Ollama**（`llama2` 等のローカル実行モデル）。HTTP API（`localhost:11434/api/generate`）経由で呼び出し |
-| LLM 用途 | 不正解時の **記憶定着用例文の自動生成**（5〜10語の短文、具体的情景、驚き/ユーモアを含む） |
+| 区分           | 内容                                                                                                                                        |
+| -------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| ローカルLLM    | **Ollama**（`llama2` 等のローカル実行モデル）。HTTP API（`localhost:11434/api/generate`）経由で呼び出し                           |
+| LLM 用途       | 不正解時の**記憶定着用例文の自動生成**（5〜10語の短文、具体的情景、驚き/ユーモアを含む）                                              |
 | プロンプト設計 | 記憶科学（視覚的エンコーディング・感情記憶）に基づき、単語と意味を渡して短文生成を指示。生成例文は Sheets にキャッシュし2回目以降は即時表示 |
-| フォールバック | Ollama 未起動時は `"word" means "meaning"` 形式で動作継続（LLMに依存しない設計） |
-| 外部API | **Google Sheets API v4**（OAuth 2.0、ローカル `credentials.json` / `token.json` で認証） |
-| API 用途 | 単語帳の読み込み、ease_factor / 次回出題日時 / 例文キャッシュの書き戻し |
+| フォールバック | Ollama 未起動時は`"word" means "meaning"` 形式で動作継続（LLMに依存しない設計）                                                           |
+| 外部API        | **Google Sheets API v4**（OAuth 2.0、ローカル `credentials.json` / `token.json` で認証）                                          |
+| API 用途       | 単語帳の読み込み、ease_factor / 次回出題日時 / 例文キャッシュの書き戻し                                                                     |
 
 ### アーキテクチャ（データフロー）
 

@@ -73,47 +73,89 @@ class OllamaClient:
         }
 
     def generate_example_sentence(self, word: str, meaning: str) -> Optional[str]:
-        """単語の短い例文を Ollama で生成する。
+        """単語を必ず含む短い例文を Ollama で生成する。
+
+        生成文に対象単語が含まれない場合（無関係な文が出た場合）は最大3回まで
+        再生成し、それでも失敗すれば None を返す（呼び出し側でフォールバック）。
 
         Returns:
-            "English sentence. — 日本語訳" 形式の文字列。失敗時は None。
+            "English sentence — 日本語訳" 形式の文字列。失敗時は None。
         """
-        prompt = f"""「{word}」({meaning})を使った超短い例文を1つ。3〜5語。面白く。
-{word}以外は簡単な単語を使って。
+        prompt = f"""英単語「{word}」（意味: {meaning}）を使った、短くて記憶に残る英語の例文を1つ作ってください。
 
-形式: 英語 — 和訳
-例: Cats abandon owners daily. — 猫は毎日飼い主を見捨てる。
-例: He postponed everything. — 彼は全てを延期した。
+【必須ルール】
+- 例文には必ず「{word}」を含めること（活用形・語形変化は可）
+- 5〜8語程度の短い文にすること
+- 具体的な情景が浮かぶ、覚えやすい内容にすること
+- 和訳は必ず自然な**日本語**で書くこと（中国語は絶対に使わない）
 
-「{word}」:"""
+出力は次の1行だけ。番号・説明・引用符は不要:
+英語の例文 — 日本語訳
 
-        try:
-            response = requests.post(
-                f"{self.host}/api/generate",
-                json={"model": self.model, "prompt": prompt, "stream": False},
-                timeout=30,
-            )
+例: Cats abandon their owners daily. — 猫は毎日飼い主を見捨てる。
+例: He postponed the meeting again. — 彼はまた会議を延期した。"""
 
-            if response.status_code != 200:
-                _LOGGER.warning("Ollama 例文生成 status: %s", response.status_code)
+        for attempt in range(3):
+            try:
+                response = requests.post(
+                    f"{self.host}/api/generate",
+                    json={"model": self.model, "prompt": prompt, "stream": False},
+                    timeout=30,
+                )
+
+                if response.status_code != 200:
+                    _LOGGER.warning("Ollama 例文生成 status: %s", response.status_code)
+                    continue
+
+                result = response.json()
+                out = result.get('response') or result.get('text')
+                if not out:
+                    continue
+
+                sentence = self._extract_example_line(out)
+                if sentence and self._sentence_uses_word(sentence, word):
+                    return sentence
+
+                _LOGGER.debug(
+                    "例文が単語「%s」を含まず再生成 (%d回目): %r",
+                    word, attempt + 1, sentence,
+                )
+
+            except Exception as e:
+                _LOGGER.warning("Ollama 例文生成エラー: %s", e)
                 return None
 
-            result = response.json()
-            out = result.get('response') or result.get('text')
-            if not out:
-                return None
+        _LOGGER.warning("例文生成: 単語「%s」を含む文を生成できませんでした", word)
+        return None
 
-            # 最初の非空行を取得
-            for line in out.strip().splitlines():
-                line = line.strip()
-                if line and not line.startswith('```'):
-                    return line
+    @staticmethod
+    def _extract_example_line(out: str) -> Optional[str]:
+        """LLM出力から「英語 — 和訳」形式の行を1つ抽出し、区切りを正規化する。"""
+        for raw in out.strip().splitlines():
+            line = raw.strip()
+            if not line or line.startswith('```'):
+                continue
+            # 先頭の「例:」「1.」「- 」等のマーカーを除去
+            line = re.sub(r'^\s*(例[:：]|[-*・]|\d+[.)])\s*', '', line).strip()
+            if '—' in line or '–' in line:
+                # 表示用に区切りを " — " へ正規化
+                return re.sub(r'\s*[—–]\s*', ' — ', line, count=1)
+            if ' - ' in line:
+                return line.replace(' - ', ' — ', 1)
+        return None
 
-            return None
-
-        except Exception as e:
-            _LOGGER.warning("Ollama 例文生成エラー: %s", e)
-            return None
+    @staticmethod
+    def _sentence_uses_word(sentence: str, word: str) -> bool:
+        """例文の英語部分が対象単語を含むか検証する（活用形・語形変化を許容）。"""
+        english = re.split(r'—|–| - ', sentence, maxsplit=1)[0].lower()
+        tokens = re.findall(r'[a-z]+', word.lower())
+        # 意味を持つ語（4文字以上）を優先。無ければ全トークンで判定
+        significant = [t for t in tokens if len(t) >= 4] or tokens
+        for tok in significant:
+            stem = tok[:max(4, len(tok) - 2)]  # 語尾変化（-s/-ed/-ing 等）を許容
+            if stem in english:
+                return True
+        return False
 
     @staticmethod
     def fallback_example_sentence(word: str, meaning: str) -> str:
@@ -141,6 +183,9 @@ class OllamaClient:
    - 正解が動詞句（例:「〜を延期する」）→ 不正解も同じ動詞句の形
 2. 不正解は各々が独立した1つの日本語表現であること
 3. 正解と意味が紛らわしいが、明確に異なる語/句を選ぶこと
+4. 【禁止】正解「{correct_meaning}」の同義語・言い換え・ほぼ同じ意味になる語は絶対に選ばないこと
+   （例: 正解が「生み出す」なら「作り出す」「産出する」はNG。意味が明確に区別できる語のみ）
+5. 選択肢はすべて自然な**日本語**で書くこと（中国語は絶対に使わない）
 
 以下のJSON形式で不正解の選択肢のみ返してください:
 {{"distractors": ["不正解1", "不正解2", "不正解3"]}}

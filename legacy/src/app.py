@@ -2,7 +2,7 @@
 import threading
 import rumps
 from typing import Optional
-from PyObjCTools.AppHelper import callLater
+from PyObjCTools.AppHelper import callAfter, callLater
 from Foundation import NSNotificationCenter
 from AppKit import (
     NSBackingStoreBuffered,
@@ -184,37 +184,51 @@ class VocabLibApp(rumps.App):
             self._start_auto_quiz(show_immediately=True, notify=True)
     
     def _show_quiz(self, _=None):
-        """クイズを表示"""
-        # 忘却曲線に基づいて単語を取得
-        word_data = self.sheets_client.get_next_word()
-        if not word_data:
-            rumps.alert(
-                title="エラー",
-                message="単語が取得できませんでした"
-            )
-            return
-        
-        correct_word, correct_meaning = word_data
-        
-        # 他の選択肢を取得
-        other_words = self.sheets_client.get_random_words(4, exclude=correct_word)
-        
-        # クイズを生成
-        quiz = self.ollama_client.generate_quiz(
-            correct_word,
-            correct_meaning,
-            other_words
-        )
-        
-        if not quiz:
-            return
+        """クイズを表示
 
-        # correct_word / correct_meaning を quiz に明示保持（question 文面に依存しない）
-        quiz['correct_word'] = correct_word
-        quiz['correct_meaning'] = correct_meaning
+        単語取得〜LLMによる選択肢生成は数秒かかるため、UIをブロックしないよう
+        バックグラウンドスレッドで実行し、完成後に callAfter でメインスレッドに
+        パネル表示を委譲する。
+        """
+        def _prepare():
+            # 忘却曲線に基づいて単語を取得
+            word_data = self.sheets_client.get_next_word()
+            if not word_data:
+                callAfter(self._alert_no_word)
+                return
+
+            correct_word, correct_meaning = word_data
+
+            # 他の単語の意味を誤答候補として取得
+            other_words = self.sheets_client.get_random_words(4, exclude=correct_word)
+            other_meanings = [meaning for _, meaning in other_words]
+
+            # まず LLM で誤答選択肢を生成。失敗/未起動時はローカル生成にフォールバック
+            quiz = self.ollama_client.generate_quiz_with_ollama(
+                correct_word, correct_meaning, other_meanings
+            )
+            if not quiz:
+                quiz = self.ollama_client.generate_quiz(
+                    correct_word, correct_meaning, other_words
+                )
+            if not quiz:
+                return
+
+            # correct_word / correct_meaning を quiz に明示保持（question 文面に依存しない）
+            quiz['correct_word'] = correct_word
+            quiz['correct_meaning'] = correct_meaning
+
+            callAfter(self._present_quiz, quiz)
+
+        threading.Thread(target=_prepare, daemon=True).start()
+
+    def _alert_no_word(self):
+        """単語取得失敗をメインスレッドで通知"""
+        rumps.alert(title="エラー", message="単語が取得できませんでした")
+
+    def _present_quiz(self, quiz: dict):
+        """メインスレッドでクイズパネルを表示する"""
         self.current_quiz = quiz
-        
-        # クイズウィンドウを表示
         self._show_quiz_window(quiz)
     
     def _show_quiz_window(self, quiz: dict):
@@ -288,14 +302,23 @@ class VocabLibApp(rumps.App):
         self.quiz_panel = panel
         panel.makeKeyAndOrderFront_(None)
 
-    def _make_label(self, text: str, frame, bold: bool, size: int):
-        """パネル用ラベルを作成"""
+    def _make_label(self, text: str, frame, bold: bool, size: int, multiline: bool = False):
+        """パネル用ラベルを作成
+
+        multiline=True で複数行（改行を含むテキスト）を表示できるようにする。
+        NSTextField はデフォルトで単一行モードのため、明示的に解除しないと
+        改行以降（例文の和訳など）が切り捨てられる。
+        """
         label = NSTextField.alloc().initWithFrame_(frame)
         label.setStringValue_(text)
         label.setBezeled_(False)
         label.setDrawsBackground_(False)
         label.setEditable_(False)
         label.setSelectable_(False)
+        if multiline:
+            label.setUsesSingleLineMode_(False)
+            label.cell().setWraps_(True)
+            label.setMaximumNumberOfLines_(0)
         if bold:
             label.setFont_(NSFont.boldSystemFontOfSize_(size))
         else:
@@ -365,6 +388,7 @@ class VocabLibApp(rumps.App):
             NSMakeRect(16, 30, width - 32, 44),
             bold=False,
             size=13,
+            multiline=True,
         )
         content.addSubview_(self.example_label)
 

@@ -24,10 +24,17 @@ wheels/
 .installed.cfg
 *.egg
 
-# 認証情報
-credentials.json
-token.json
+# 認証情報（バックアップ・派生ファイルも含めて除外する）
+credentials.json*
+token.json*
 .env
+.env.local
+!.env.example
+
+# ローカルDB（v2: SQLite）
+*.db
+*.db-wal
+*.db-shm
 
 # macOS
 .DS_Store
