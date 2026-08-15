@@ -37,10 +37,15 @@ export function AccuracyChart({ points }: { points: DailyPoint[] }) {
           />
           <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} unit="%" width={44} />
           <Tooltip
-            formatter={(value: number | null, _name, item) => [
-              value === null ? "回答なし" : `${value}%`,
-              `${item?.payload?.total ?? 0}問`,
-            ]}
+            // 型注釈は付けない。Recharts 側の型（value は undefined になり得る）を
+            // 推論させ、ここで絞り込む
+            formatter={(value, _name, item) => {
+              const payload = item?.payload as { total?: number } | undefined;
+              return [
+                typeof value === "number" ? `${value}%` : "回答なし",
+                `${payload?.total ?? 0}問`,
+              ];
+            }}
             contentStyle={{ fontSize: 12, borderRadius: 8 }}
           />
           <Line
