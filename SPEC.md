@@ -4,6 +4,7 @@
 
 | 日付       | 更新内容                         | 担当 |
 | ---------- | -------------------------------- | ---- |
+| 2026-08-15 | Phase 6（認証・デプロイ）完了を反映。F-08を「実装済（公開中）」、F-10を「実装済」に変更。本番URL `https://vocablib.vercel.app` を公開。Web側を `service_role` から `anon`＋Googleログインに切替え、RLSポリシー（select のみ）を追加。Mac側に `SUPABASE_USER_ID` を追加。12.8「認証とデプロイ」を追加 | UG   |
 | 2026-08-15 | Phase 5（Webダッシュボード）完了を反映。F-08を「実装済（ローカルのみ・未デプロイ）」に変更。`web/`（Next.js 16 / TypeScript / Tailwind v4 / Recharts / Vitest）を追加。12.7「Webダッシュボード」を追加。UI作り込みはPhase 7に分離 | UG   |
 | 2026-08-15 | Phase 4（Supabase同期）完了を反映。F-06を「実装済」に変更。Supabase側DDLを `src/db/supabase_schema.sql` として追加しRLSを有効化。環境変数に `SUPABASE_URL` `SUPABASE_SERVICE_ROLE_KEY` `SYNC_INTERVAL_MINUTES` を追加。12.7「同期仕様」を追加 | UG   |
 | 2026-08-15 | Phase 3（LLM連携）完了を反映。F-03/F-09を「実装済」、F-04を「LLM補強は保留（登録30語到達後に再判断）」に変更。Geminiモデルを `gemini-3.7-flash` に、ローカルLLMを `gemma3:4b` に確定。環境変数に `GEMINI_MODEL` `LLM_TIMEOUT_SECONDS` `AUTOFILL_TIMEOUT_SECONDS` `LOG_LEVEL` を追加。12.5「LLMフォールバック仕様」を追加。単語追加をフォーム1枚に刷新 | UG   |
@@ -80,13 +81,13 @@ PC作業中に英単語を強制的・自動的に出題し、意思に依存し
 | F-01 | 自動出題（Mac）               | 設定間隔で4択クイズをメニューバーから自動表示     | **実装済**（Phase 2） |
 | F-02 | SM-2スケジューリング          | 正誤で次回出題日時を自動調整                      | **実装済**（Phase 1） |
 | F-03 | AI例文生成（不正解時）        | 不正解時に記憶に残る例文を生成・キャッシュ        | **実装済**（Phase 3） |
-| F-04 | 4択クイズ生成                 | 誤答選択肢の生成（登録済み和訳から抽出）          | **実装済**（Phase 2）。LLM補強は**保留**（登録30語到達後に再判断。12.8参照） |
+| F-04 | 4択クイズ生成                 | 誤答選択肢の生成（登録済み和訳から抽出）          | **実装済**（Phase 2）。LLM補強は**保留**（登録30語到達後に再判断。12.9参照） |
 | F-05 | ローカルSQLite永続化          | 単語・学習状態・回答履歴をローカル保存            | **実装済**（Phase 1） |
 | F-06 | Supabase同期                  | SQLite ↔ Supabase の同期（オフライン耐性）       | **実装済**（Phase 4）。12.6参照 |
 | F-07 | 統計の永続化・集計            | answer_log から正答率・継続日数などを集計         | **実装済**（Phase 1）。Mac側の表示はPhase 2で実装 |
-| F-08 | Webダッシュボード             | スマホ/PCで統計を可視化（Tier1）                  | **実装済（ローカルのみ）**（Phase 5）。デプロイはPhase 6の認証導入後。12.7参照 |
+| F-08 | Webダッシュボード             | スマホ/PCで統計を可視化（Tier1）                  | **実装済・公開中**（Phase 5・6）。https://vocablib.vercel.app 。12.7参照 |
 | F-09 | 単語追加フォーム（auto-fill） | 英単語入力→和訳・品詞をLLM自動入力・編集して保存 | **実装済**（Phase 3）。Mac側のみ。Web側はPhase 5 |
-| F-10 | 認証（Googleログイン）        | Webの本人限定アクセス／RLS                        | 未着手（Phase 6） |
+| F-10 | 認証（Googleログイン）        | Webの本人限定アクセス／RLS                        | **実装済**（Phase 6）。12.8参照 |
 | F-11 | Webでテスト受験               | スマホから出題・回答（Tier2）                     | 対象外（将来）   |
 
 ### 4.2 各機能の詳細（主要のみ）
@@ -198,24 +199,26 @@ answer_log       回答イベント履歴（追記のみ・不変）→ 統計�
 | AUTOFILL_TIMEOUT_SECONDS  | オートフィルの待ち上限（既定10。Geminiの下限が10秒のためこれ未満不可） | Mac`.env` |
 | LOG_LEVEL                 | ログ詳細度（既定INFO。DEBUGでフォールバック理由まで出る） | Mac`.env` |
 | SYNC_INTERVAL_MINUTES     | 自動同期の間隔（既定10）       | Mac`.env`                 |
+| SUPABASE_USER_ID          | 送信行に付ける所有者UUID（RLS判定用） | Mac`.env`           |
 
 `SUPABASE_URL` と `SUPABASE_SERVICE_ROLE_KEY` のどちらかが未設定なら同期は丸ごと無効になり、
 アプリはローカル完結で動作する（メニューに「同期: 未設定」と表示）。
 
-### 7.1 Web側（`web/.env.local`）
+### 7.1 Web側（`web/.env.local` / Vercel Environment Variables）
 
 | 変数名 | 用途 |
 | ------ | ---- |
-| SUPABASE_URL | プロジェクトURL（Mac側と同じ値） |
-| SUPABASE_SERVICE_ROLE_KEY | サーバー側でのみ使用（Mac側と同じ値） |
+| NEXT_PUBLIC_SUPABASE_URL | プロジェクトURL |
+| NEXT_PUBLIC_SUPABASE_ANON_KEY | `anon` キー |
 
-テンプレートは `web/.env.example`。
+テンプレートは `web/.env.example`。ローカルと Vercel の両方に同じ値を設定する。
 
-**`NEXT_PUBLIC_` を付けてはいけない。** Next.js は `NEXT_PUBLIC_` が付いた変数だけを
-ブラウザ側のJSにビルド時へ焼き込む。`service_role` キーがブラウザに出た時点で
-DBの全権を公開したことになる。
-`web/lib/supabase.ts` は `server-only` を import しており、Client Component から
-誤ってimportするとビルドが失敗する（命名規則に加えた機械的な歯止め）。
+**`service_role` キーはWeb側では一切使わない**（Phase 6 で撤去）。
+Vercel の環境変数にも登録しない。
+
+`NEXT_PUBLIC_` が付いているのは設計どおり。`anon` キーは「匿名ユーザーという名札」で、
+実際に何が見えるかはRLSポリシーが決めるためブラウザに出て良い。
+ログインボタンがブラウザ側で Supabase Auth を呼ぶため、この2つは公開が必須。
 
 テンプレートは `.env.example`。`cp .env.example .env` して使う。`.env` はGit除外。
 
@@ -227,8 +230,12 @@ DBの全権を公開したことになる。
 
 - Mac常駐アプリ（現行）: `uv run python -m src.main`
   - `.app` 化（PyInstaller）は未着手。ログイン項目への登録もこれに含めて後日決定する。
-- テスト: `uv run pytest`
-- Web: Vercelに自動デプロイ（TBD）
+- テスト: `uv run pytest`（Python） / `cd web && npm test`（TypeScript）
+- Web: **https://vocablib.vercel.app**
+  - `main` ブランチへの push で Vercel が自動デプロイする
+  - Vercel の Root Directory は `web`
+  - **push前に `cd web && npm run build` を通すこと。** `npm run dev` では
+    型チェックが緩く、本番ビルドで初めて落ちることがある
 
 ### 8.1.1 データ保存先
 
@@ -310,9 +317,14 @@ DBの全権を公開したことになる。
 | `src/ui/dialogs.py` | 単語登録フロー・単語一覧・統計 |
 | `src/main.py` | エントリポイント |
 | `web/lib/stats.ts` | 統計の集計（純粋関数）。SupabaseもReactもimportしない |
-| `web/lib/supabase.ts` | サーバー専用のSupabaseクライアント |
+| `web/lib/supabase/client.ts` | ブラウザ用クライアント（ログインボタン） |
+| `web/lib/supabase/server.ts` | サーバー用クライアント（Cookieからセッションを読む） |
+| `web/lib/supabase/data.ts` | データ取得。RLSが絞るので user_id 条件を書かない |
 | `web/lib/types.ts` | DBの行の型 |
+| `web/proxy.ts` | 認証ガードとセッション更新（Next 16で middleware から改名） |
 | `web/app/page.tsx` | ダッシュボード本体（Server Component） |
+| `web/app/login/page.tsx` | ログイン画面 |
+| `web/app/auth/callback/route.ts` | 認可コード→セッションCookieへの交換 |
 | `web/components/*.tsx` | 表示部品 |
 
 依存の向き: `db` / `srs` → `quiz` → `ui`、`config` → `llm` → `ui`。
@@ -503,7 +515,67 @@ Phase 6 でGoogleログインとRLSポリシーを入れてからVercelにデプ
 Phase 7 に分離した。理由は、未デプロイの段階で磨いてもフィードバックが得られず、
 かつUI変更はデータ構造に影響しないため後回しにしてもコストが変わらないため。
 
-### 12.8 4択誤答のLLM生成を見送った理由（2026-08-15）
+### 12.8 認証とデプロイ（Phase 6）
+
+#### 認証の構成
+
+```
+ブラウザ ──Cookie付き──> Server Component ──> Supabase
+                          （anonキー + セッション）
+                                    ↓
+                          RLS が auth.uid() = user_id で絞る
+```
+
+- Supabase Auth の Google プロバイダ
+- `@supabase/ssr` でセッションを **Cookie** に保存する
+  （既定の `localStorage` は Server Component から読めないため）
+- `web/proxy.ts`（Next 16 で `middleware` から改名）で未ログインを `/login` へ飛ばす
+- 認証判定は `getSession()` ではなく **`getUser()`** を使う。前者はCookieの中身を
+  そのまま信じるが、後者はSupabaseに問い合わせてトークンを検証する
+
+#### リダイレクトURLの登録箇所は2つある
+
+2段階のリダイレクトが起きるため、ホワイトリストも2箇所必要。
+
+| 登録先 | 値 | 守る区間 |
+| ------ | -- | -------- |
+| Google Cloud Console | `https://ozcoyvdgaumvwwkrutau.supabase.co/auth/v1/callback` | Google → Supabase |
+| Supabase URL Configuration | `https://vocablib.vercel.app/auth/callback`<br>`http://localhost:3000/auth/callback` | Supabase → 自分のアプリ |
+
+**Supabase側にはVercelの固定ドメインを登録すること。** デプロイごとに変わる
+`vocablib-xxxxx.vercel.app` 形式のURLを登録すると、次のデプロイでログインが壊れる。
+
+#### RLSポリシー
+
+3テーブルとも `for select using (auth.uid() = user_id)` のみ。
+Webは読み取り専用（SPEC 1.3で編集は対象外）なので書き込みポリシーは作らない。
+
+ポリシー適用の前に、既存行の `user_id` を自分のUUIDで埋める必要がある
+（順序を逆にすると自分のデータすら見えなくなる）。DDLとUPDATE文は
+`src/db/supabase_schema.sql` に記録している。
+
+| 状況 | 結果 |
+| ---- | ---- |
+| 未ログインでURLを開く | `/login` へリダイレクト。データは1行も返らない |
+| 他人がGoogleでログイン | ログインはできるが `auth.uid()` が違うので空のダッシュボード |
+| `anon` キーが漏れる | RLSが守るので実害なし |
+
+#### Mac側
+
+`service_role` のまま（手元でしか動かないためログインUIは実装しない）。
+ただし `SUPABASE_USER_ID` を送信行に付け、pull時のフィルタにも使う。
+`service_role` はRLSをバイパスするため、自分で絞らないと他人の行まで取ってくる。
+
+`user_id` の付与とフィルタは `SupabaseClient` の中だけで完結させており、
+`SyncEngine` は `user_id` を知らない（Phase 4 のテスト21件は無修正）。
+
+#### ローカルSQLiteに `user_id` 列は無い
+
+ローカルDBは構造上ひとり分。pullした行に `user_id` があっても
+`apply_remote_*` は必要な列だけを明示的に読むため無視される。
+「クラウドは複数ユーザーを区別するが、ローカルは自分専用」という非対称性。
+
+### 12.9 4択誤答のLLM生成を見送った理由（2026-08-15）
 
 出題は5分ごとに発生するため、毎回LLMを呼ぶとレイテンシと無料枠を消費し、
 失敗時のフォールバック経路も出題パスに増える。現状の「登録済み単語の和訳から抽出」で
@@ -519,5 +591,6 @@ Phase 7 に分離した。理由は、未デプロイの段階で磨いてもフ
 
 - [ ] Mac常駐アプリの `.app` 配布手順（PyInstaller）とログイン項目への登録 — 8.1
   - 現行は `uv run python -m src.main` で運用（2026-08-15 時点）
-- [ ] Vercelデプロイ手順の確定 — 8.1
+- [x] ~~Vercelデプロイ手順の確定~~ — 2026-08-15 完了（8.1・12.8）
 - [ ] 4択の当てずっぽう対策（入力式・出題方向の切替）の要否 — 9
+- [ ] UI・ビジュアルの作り込み — Phase 7 で対応
