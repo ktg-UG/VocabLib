@@ -1,0 +1,30 @@
+[project]
+name = "vocablib"
+version = "0.2.0"
+description = "PC作業中に英単語が自動で問われる、macOSメニューバー常駐の反復学習アプリ"
+readme = "README.md"
+requires-python = ">=3.12"
+# Phase 1（SQLite層）は標準ライブラリのみで動作する。
+# rumps / pyobjc は Phase 2（UI）、requests / google-genai は Phase 3（LLM）、
+# supabase は Phase 4（同期）で追加する。
+dependencies = [
+    "google-genai>=2.18.1",
+    "pyobjc-framework-cocoa>=12.2.2",
+    "python-dotenv>=1.2.2",
+    "requests>=2.34.2",
+    "rumps>=0.4.0",
+    "supabase>=2.31.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# テストから `src.db.store` の形でimportできるよう、プロジェクトルートをsys.pathに追加する
+pythonpath = ["."]
+
+[tool.uv]
+package = false
