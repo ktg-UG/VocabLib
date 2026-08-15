@@ -1,25 +1,28 @@
 # Python
+# ビルド成果物の指定は先頭に / を付けてルート限定にする。
+# スラッシュ無しだと全階層にマッチしてしまい、web/lib/ のような
+# 別スタックのソースまで無視されるため（実際に踏みかけた）。
 __pycache__/
 *.py[cod]
 *$py.class
 *.so
 .Python
-env/
-venv/
 .venv/
-ENV/
-build/
-develop-eggs/
-dist/
-downloads/
-eggs/
-.eggs/
-lib/
-lib64/
-parts/
-sdist/
-var/
-wheels/
+/env/
+/venv/
+/ENV/
+/build/
+/develop-eggs/
+/dist/
+/downloads/
+/eggs/
+/.eggs/
+/lib/
+/lib64/
+/parts/
+/sdist/
+/var/
+/wheels/
 *.egg-info/
 .installed.cfg
 *.egg
@@ -46,6 +49,18 @@ token.json*
 .idea/
 *.swp
 *.swo
+
+# v1のビルド成果物（PyInstaller。合計280MBあるのでコミットしない）
+# ルート限定の /build/ /dist/ では legacy/ 配下を拾えないため個別に指定する
+legacy/build/
+legacy/dist/
+
+# Web（Next.js）
+node_modules/
+.next/
+out/
+.vercel/
+*.tsbuildinfo
 
 # ログ
 *.log
