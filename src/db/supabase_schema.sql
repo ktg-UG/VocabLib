@@ -17,11 +17,15 @@ create table if not exists words (
   english           text not null,
   japanese          text not null,
   part_of_speech    text,
+  tag               text not null default '',
   example_sentence  text,
   created_at        timestamptz not null,
   updated_at        timestamptz not null,
   deleted           boolean not null default false
 );
+
+-- 既存のプロジェクトに後から列を足す場合はこちら（create table は既存テーブルに効かない）
+alter table words add column if not exists tag text not null default '';
 
 -- ── SM-2の現在状態（1単語1行・上書き） ──────────────────────────────────
 create table if not exists learning_records (

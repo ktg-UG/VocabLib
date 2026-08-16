@@ -18,6 +18,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from ..srs.spaced_repetition import INITIAL_EASE_FACTOR, calculate_next_review
+from ..tags import normalize_tag
 
 SCHEMA_PATH = Path(__file__).parent / "schema.sql"
 
@@ -37,6 +38,7 @@ class Word:
     japanese: str
     part_of_speech: str | None = None
     example_sentence: str | None = None
+    tag: str = ""          # 1単語1タグ。空文字はタグなし
 
 
 # 品詞の正式な選択肢。自由入力だと表記ゆれ（動詞 / 他動詞 / 【動】…）が起き、
@@ -85,6 +87,23 @@ class Store:
         sql = SCHEMA_PATH.read_text(encoding="utf-8")
         with self._lock:
             self._conn.executescript(sql)
+            self._migrate()
+
+    def _migrate(self) -> None:
+        """スキーマ変更を既存DBに適用する。
+
+        `schema.sql` は `CREATE TABLE IF NOT EXISTS` なので、**既にテーブルがあるDBには
+        何の効果もない**。列を足しただけでは手元のDBに生えず、新規インストールでしか
+        動かない変更になる。列の追加は必ずここに書く。
+
+        起動のたびに走るので、何度実行しても安全であること（列があれば何もしない）。
+        呼び出し元が `self._lock` を保持している前提。
+        """
+        columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(words)")}
+        if "tag" not in columns:
+            self._conn.execute(
+                "ALTER TABLE words ADD COLUMN tag TEXT NOT NULL DEFAULT ''"
+            )
 
     def close(self) -> None:
         with self._lock:
@@ -98,6 +117,7 @@ class Store:
         japanese: str,
         part_of_speech: str | None = None,
         example_sentence: str | None = None,
+        tag: str = "",
     ) -> str:
         """単語を追加し、word_id を返す。
 
@@ -108,6 +128,7 @@ class Store:
         japanese = japanese.strip()
         if not english or not japanese:
             raise ValueError("englishとjapaneseは必須です")
+        tag = normalize_tag(tag)
 
         word_id = str(uuid.uuid4())
         now = _iso(_now())
@@ -117,10 +138,10 @@ class Store:
                 with self._conn:  # トランザクション（例外時は自動ロールバック）
                     self._conn.execute(
                         """INSERT INTO words
-                           (id, english, japanese, part_of_speech, example_sentence,
-                            created_at, updated_at)
-                           VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                        (word_id, english, japanese, part_of_speech,
+                           (id, english, japanese, part_of_speech, tag,
+                            example_sentence, created_at, updated_at)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                        (word_id, english, japanese, part_of_speech, tag,
                          example_sentence, now, now),
                     )
                     self._conn.execute(
@@ -162,6 +183,31 @@ class Store:
                 (now, word_id),
             )
 
+    def set_word_tag(self, word_id: str, tag: str) -> None:
+        """タグを付け替える。
+
+        他の更新系と同じく `updated_at` を進める。これで
+        `synced_at IS NULL OR updated_at > synced_at` に引っかかり、次の同期でpushされる。
+        （SQLiteを直接UPDATEするとここを書き忘れ、Supabaseに反映されない
+        ローカル変更ができてしまう）
+        """
+        now = _iso(_now())
+        with self._lock, self._conn:
+            self._conn.execute(
+                "UPDATE words SET tag = ?, updated_at = ? WHERE id = ?",
+                (normalize_tag(tag), now, word_id),
+            )
+
+    def list_tags(self) -> list[dict]:
+        """使われているタグと語数を、多い順に返す。タグなしは含めない"""
+        with self._lock:
+            rows = self._conn.execute(
+                """SELECT tag, COUNT(*) AS count FROM words
+                   WHERE deleted = 0 AND tag != ''
+                   GROUP BY tag ORDER BY count DESC, tag"""
+            ).fetchall()
+        return [{"tag": r["tag"], "count": r["count"]} for r in rows]
+
     def set_example_sentence(self, word_id: str, sentence: str) -> None:
         """AI生成した例文をキャッシュする"""
         now = _iso(_now())
@@ -173,27 +219,37 @@ class Store:
 
     # ── 出題する単語の選択 ────────────────────────────────────────────────
 
-    def get_next_word(self) -> Word | None:
+    def get_next_word(self, tag: str | None = None) -> Word | None:
         """忘却曲線に基づいて次に出題する単語を選ぶ。
 
         優先順位:
             1. 復習期限を過ぎた単語（最も長く放置しているものから）
             2. 未学習の単語（ランダム）
             3. 期限前だが最も近く出題予定の単語
+
+        Args:
+            tag: 指定するとそのタグの単語だけから選ぶ。該当が無ければ None を返す
+                 （**勝手に絞り込みを解除しない**。別の単語を出すと設定が
+                 効いていないように見えるため）
         """
         now = _iso(_now())
         base = """SELECT w.* FROM words w
                   JOIN learning_records lr ON lr.word_id = w.id
                   WHERE w.deleted = 0 """
+        # 1単語1タグなので完全一致でよい（カンマ区切りの部分一致を考えなくて済む）
+        tag_filter = "AND w.tag = ? " if tag else ""
+        tag_params: tuple = (tag,) if tag else ()
+        base += tag_filter
 
         queries = [
             # 1. 期限切れ: next_review が古い順
             (base + "AND lr.next_review IS NOT NULL AND lr.next_review <= ? "
-                    "ORDER BY lr.next_review LIMIT 1", (now,)),
+                    "ORDER BY lr.next_review LIMIT 1", tag_params + (now,)),
             # 2. 未学習: ランダム
-            (base + "AND lr.next_review IS NULL ORDER BY RANDOM() LIMIT 1", ()),
+            (base + "AND lr.next_review IS NULL ORDER BY RANDOM() LIMIT 1", tag_params),
             # 3. 期限前: next_review が近い順
-            (base + "AND lr.next_review > ? ORDER BY lr.next_review LIMIT 1", (now,)),
+            (base + "AND lr.next_review > ? ORDER BY lr.next_review LIMIT 1",
+             tag_params + (now,)),
         ]
 
         with self._lock:
@@ -425,7 +481,7 @@ class Store:
         """まだ送っていない（または送信後に更新された）単語"""
         with self._lock:
             rows = self._conn.execute(
-                """SELECT id, english, japanese, part_of_speech, example_sentence,
+                """SELECT id, english, japanese, part_of_speech, tag, example_sentence,
                           created_at, updated_at, deleted
                    FROM words
                    WHERE synced_at IS NULL OR updated_at > synced_at"""
@@ -490,13 +546,14 @@ class Store:
             with self._lock, self._conn:
                 cur = self._conn.execute(
                     """INSERT INTO words
-                       (id, english, japanese, part_of_speech, example_sentence,
+                       (id, english, japanese, part_of_speech, tag, example_sentence,
                         created_at, updated_at, deleted, synced_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                        ON CONFLICT(id) DO UPDATE SET
                            english          = excluded.english,
                            japanese         = excluded.japanese,
                            part_of_speech   = excluded.part_of_speech,
+                           tag              = excluded.tag,
                            example_sentence = excluded.example_sentence,
                            updated_at       = excluded.updated_at,
                            deleted          = excluded.deleted,
@@ -504,7 +561,10 @@ class Store:
                        WHERE excluded.updated_at > words.updated_at""",
                     (
                         row["id"], row["english"], row["japanese"],
-                        row.get("part_of_speech"), row.get("example_sentence"),
+                        row.get("part_of_speech"),
+                        # 列を足す前に入った行には tag が無い
+                        row.get("tag") or "",
+                        row.get("example_sentence"),
                         row["created_at"], row["updated_at"],
                         int(bool(row.get("deleted"))), now,
                     ),
@@ -596,4 +656,5 @@ def _to_word(row: sqlite3.Row) -> Word:
         japanese=row["japanese"],
         part_of_speech=row["part_of_speech"],
         example_sentence=row["example_sentence"],
+        tag=row["tag"] or "",
     )

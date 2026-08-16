@@ -23,6 +23,11 @@ from ..sync import SupabaseClient, SyncEngine, SyncResult, is_configured
 from . import dialogs
 from .panel import QuizPanel
 
+# 出題するタグの選択を保存するキー。専用テーブルを作るほどの情報量ではないので
+# sync_state（キーバリュー）に相乗りする
+TAG_FILTER_KEY = "quiz_tag_filter"
+ALL_TAGS = ""   # 「すべて」を表す内部値
+
 
 class VocabLibApp(rumps.App):
     def __init__(self, store: Store, llm: LLMClient | None = None):
@@ -41,14 +46,17 @@ class VocabLibApp(rumps.App):
         self.stats_item = rumps.MenuItem("統計: 読み込み中", callback=None)
         self.sync_item = rumps.MenuItem("同期: 未設定", callback=None)
 
+        # 出題するタグ。空文字は「すべて」。再起動後も維持する
+        self.quiz_tag = self.store.get_sync_value(TAG_FILTER_KEY) or ALL_TAGS
+        self.tag_item = rumps.MenuItem("出題するタグ")
+
         self.menu = [
             rumps.MenuItem("今すぐ出題", callback=self.quiz_now),
             rumps.separator,
             self.auto_item,
+            self.tag_item,
             rumps.separator,
             rumps.MenuItem("単語を追加...", callback=self.add_word),
-            # 単語一覧はWeb側へ移すまでの繋ぎ（役割分担はSPEC 1.4を参照）
-            rumps.MenuItem("単語一覧...", callback=self.list_words),
             rumps.separator,
             rumps.MenuItem("統計...", callback=self.show_stats),
             self.stats_item,
@@ -59,6 +67,7 @@ class VocabLibApp(rumps.App):
         ]
 
         self.timer = rumps.Timer(self._tick, 1)
+        self._rebuild_tag_menu()
         self._refresh_stats_item()
 
         # 同期は設定が揃っているときだけ有効にする。
@@ -90,10 +99,46 @@ class VocabLibApp(rumps.App):
 
     def _on_add_panel_closed(self) -> None:
         self.add_panel = None
+        self._rebuild_tag_menu()   # 新しいタグが増えているかもしれない
         self._refresh_stats_item()
 
-    def list_words(self, _) -> None:
-        dialogs.show_words(self.store)
+    # ── 出題するタグ ──────────────────────────────────────────────────────
+
+    def _rebuild_tag_menu(self) -> None:
+        """タグのサブメニューを作り直す。
+
+        単語を追加したり同期でpullしたりするとタグが増減するため、
+        そのたびに組み直す。語数を併記して、選ぶ前に中身が分かるようにする。
+        """
+        try:
+            tags = self.store.list_tags()
+            total = self.store.count_words()
+        except Exception:
+            traceback.print_exc()
+            return
+
+        entries = [(ALL_TAGS, f"すべて（{total}語）")]
+        entries += [(t["tag"], f"{t['tag']}（{t['count']}語）") for t in tags]
+
+        # 選択中のタグが1語も無くなったら「すべて」に戻す
+        # （選べない状態で絞り込みが残ると、単語がありませんと言われ続ける）
+        if self.quiz_tag not in {tag for tag, _ in entries}:
+            self.quiz_tag = ALL_TAGS
+            self.store.set_sync_value(TAG_FILTER_KEY, ALL_TAGS)
+
+        # rumps の MenuItem は最初に子を入れるまでサブメニューを持たない。
+        # 空のまま clear() を呼ぶと None を触って落ちるので、件数で守る
+        if len(self.tag_item):
+            self.tag_item.clear()
+        for tag, title in entries:
+            item = rumps.MenuItem(title, callback=partial(self._select_tag, tag))
+            item.state = 1 if tag == self.quiz_tag else 0
+            self.tag_item.add(item)
+
+    def _select_tag(self, tag: str, _) -> None:
+        self.quiz_tag = tag
+        self.store.set_sync_value(TAG_FILTER_KEY, tag)
+        self._rebuild_tag_menu()
 
     def show_stats(self, _) -> None:
         dialogs.show_stats(self.store)
@@ -169,14 +214,24 @@ class VocabLibApp(rumps.App):
             return
 
         try:
-            quiz = build_quiz(self.store, choice_count=config.CHOICE_COUNT)
+            quiz = build_quiz(
+                self.store,
+                choice_count=config.CHOICE_COUNT,
+                tag=self.quiz_tag or None,
+            )
         except Exception as e:
             self._report_error("出題する単語の取得に失敗しました", e)
             self._restart_timer()
             return
 
         if quiz is None:
-            dialogs.notify("単語がありません", "「単語を追加...」から登録してください")
+            if self.quiz_tag:
+                dialogs.notify(
+                    f"タグ「{self.quiz_tag}」に出題できる単語がありません",
+                    "「出題するタグ」で「すべて」を選ぶと再開します",
+                )
+            else:
+                dialogs.notify("単語がありません", "「単語を追加...」から登録してください")
             self._restart_timer()
             return
 
@@ -314,6 +369,7 @@ class VocabLibApp(rumps.App):
                 f"同期: {now} 完了（送信{result.pushed} 受信{result.pulled}）"
             )
             if result.pulled:
+                self._rebuild_tag_menu()
                 self._refresh_stats_item()
 
     # ── エラー通知 ────────────────────────────────────────────────────────

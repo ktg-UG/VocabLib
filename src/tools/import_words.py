@@ -7,8 +7,13 @@
 
 和訳・品詞を自分で指定したい行は、カンマ区切りで書けばLLMを呼ばずに登録する。
 
-    yield                       ← LLMが和訳・品詞を補完する
-    incorporation, 法人設立, 名詞   ← 書いたとおりに登録する（LLMを呼ばない）
+    yield                            ← LLMが和訳・品詞を補完する
+    incorporation, 法人設立, 名詞      ← 書いたとおりに登録する（LLMを呼ばない）
+    incorporation, 法人設立, 名詞, TOEIC  ← 4列目はタグ（1単語1タグ）
+
+登録済みの単語にタグだけ付けたいときは --retag を使う。
+
+    uv run python -m src.tools.import_words tmp.txt --tag TOEIC --retag
 """
 from __future__ import annotations
 
@@ -22,6 +27,7 @@ from typing import Callable
 from .. import config
 from ..db.store import PARTS_OF_SPEECH, DuplicateWordError, Store
 from ..llm import LLMClient
+from ..tags import normalize_tag, parse_word_input
 
 # Geminiの無料枠には毎分のリクエスト上限がある。一気に投げると429で
 # ローカルLLMに落ちてしまい、品質が下がるので間隔を空ける。
@@ -35,10 +41,17 @@ class Entry:
     english: str
     japanese: str | None = None
     part_of_speech: str | None = None
+    tag: str = ""
 
     @property
     def needs_lookup(self) -> bool:
         return self.japanese is None
+
+    def with_default_tag(self, tag: str) -> "Entry":
+        """タグが未指定なら --tag の値を使う（行の指定を優先する）"""
+        if self.tag or not tag:
+            return self
+        return Entry(self.english, self.japanese, self.part_of_speech, tag)
 
 
 @dataclass
@@ -46,6 +59,7 @@ class ImportResult:
     added: list[str] = field(default_factory=list)
     skipped: list[str] = field(default_factory=list)   # 既に登録済み
     failed: list[str] = field(default_factory=list)    # LLMが和訳を返さなかった
+    retagged: list[str] = field(default_factory=list)  # 登録済みにタグだけ付けた
 
     @property
     def total(self) -> int:
@@ -58,7 +72,9 @@ def parse_entries(text: str) -> list[Entry]:
     - 前後の空白を除去する（実データに末尾スペースがあった）
     - 空行と `#` で始まる行は無視する
     - ファイル内の重複も除く（大文字小文字は区別しない）
-    - `英単語, 和訳, 品詞` の形式なら、その値をそのまま使う（品詞は省略可）
+    - `英単語, 和訳, 品詞, タグ` の形式なら、その値をそのまま使う（品詞・タグは省略可）
+    - 英単語欄の `yield #TOEIC` という書き方でもタグを指定できる
+      （書式が2通りあるので、**4列目があればそちらを優先する**）
 
     英単語側にカンマを含むフレーズは扱えないが、実データに存在しないので許容する。
 
@@ -85,20 +101,24 @@ def parse_entries(text: str) -> list[Entry]:
 
 def _parse_line(line: str, lineno: int) -> Entry:
     fields = [part.strip() for part in line.split(",")]
-    english = fields[0]
+
+    # 1列目の `#` 記法（Macの入力欄と同じ書き方）でもタグを指定できる
+    english, tag = parse_word_input(fields[0])
     japanese = fields[1] if len(fields) >= 2 and fields[1] else None
     pos = fields[2] if len(fields) >= 3 and fields[2] else None
+    if len(fields) >= 4 and fields[3]:
+        tag = normalize_tag(fields[3])
 
     if japanese is None:
         # 和訳が無ければ品詞だけ指定しても意味がないので、単語行として扱う
-        return Entry(english=english)
+        return Entry(english=english, tag=tag)
 
     if pos is not None and pos not in PARTS_OF_SPEECH:
         raise ValueError(
             f"{lineno}行目: 品詞「{pos}」は選択肢にありません"
             f"（{' / '.join(PARTS_OF_SPEECH)}）"
         )
-    return Entry(english=english, japanese=japanese, part_of_speech=pos)
+    return Entry(english=english, japanese=japanese, part_of_speech=pos, tag=tag)
 
 
 def import_words(
@@ -108,6 +128,8 @@ def import_words(
     *,
     dry_run: bool = False,
     delay: float = DEFAULT_DELAY_SECONDS,
+    default_tag: str = "",
+    retag: bool = False,
     log: Callable[[str], None] = print,
 ) -> ImportResult:
     """単語を順に登録する。
@@ -115,15 +137,34 @@ def import_words(
     和訳が取得できなかった単語は**登録しない**。和訳の無い単語は出題できず、
     4択の選択肢としても使えないため、DBに入れる価値がない。
     最後に一覧で報告し、手で登録してもらう。
+
+    Args:
+        default_tag: 行にタグの指定が無いときに使うタグ
+        retag: 登録済みの単語にもタグを付ける。**既にタグがある単語は触らない**
+            （1語1タグなので上書きは前のタグの消滅になり、Webや `#` 記法で
+            付けたタグをインポータが黙って消すことになるため）
     """
     result = ImportResult()
-    existing = {word.english.lower() for word in store.list_words()}
+    existing: dict[str, list] = {}
+    for word in store.list_words():
+        existing.setdefault(word.english.lower(), []).append(word)
 
     for index, entry in enumerate(entries, start=1):
+        entry = entry.with_default_tag(default_tag)
         english = entry.english
+        key = english.lower()
         prefix = f"[{index}/{len(entries)}] {english}"
 
-        if english.lower() in existing:
+        if key in existing:
+            untagged = [word for word in existing[key] if not word.tag]
+            if retag and entry.tag and untagged:
+                if not dry_run:
+                    for word in untagged:
+                        store.set_word_tag(word.id, entry.tag)
+                suffix = "（dry-run）" if dry_run else ""
+                log(f"{prefix} … skip（登録済み）→ タグ付与: {entry.tag}{suffix}")
+                result.retagged.append(english)
+                continue
             log(f"{prefix} … skip（登録済み）")
             result.skipped.append(english)
             continue
@@ -139,19 +180,20 @@ def import_words(
             japanese, part_of_speech = entry.japanese, entry.part_of_speech
 
         pos_label = f" / {part_of_speech}" if part_of_speech else ""
+        tag_label = f" [{entry.tag}]" if entry.tag else ""
         if dry_run:
-            log(f"{prefix} … {japanese}{pos_label}（dry-run）")
+            log(f"{prefix} … {japanese}{pos_label}{tag_label}（dry-run）")
         else:
             try:
-                store.add_word(english, japanese, part_of_speech)
+                store.add_word(english, japanese, part_of_speech, tag=entry.tag)
             except DuplicateWordError:
                 # 同じ (英単語, 和訳) が既にある。上の existing では拾えない経路
                 log(f"{prefix} … skip（登録済み）")
                 result.skipped.append(english)
                 continue
-            log(f"{prefix} … {japanese}{pos_label}")
+            log(f"{prefix} … {japanese}{pos_label}{tag_label}")
 
-        existing.add(english.lower())
+        existing.setdefault(key, [])
         result.added.append(english)
 
         # LLMを呼んでいない行で待つ理由は無い（レート制限のための待機なので）
@@ -165,6 +207,10 @@ def format_summary(result: ImportResult, dry_run: bool) -> str:
     lines = [
         "",
         f"  {'登録予定' if dry_run else '登録'}   {len(result.added)}語",
+    ]
+    if result.retagged:
+        lines.append(f"  タグ付与 {len(result.retagged)}語")
+    lines += [
         f"  skip     {len(result.skipped)}語",
         f"  失敗     {len(result.failed)}語",
     ]
@@ -186,6 +232,14 @@ def main(argv: list[str] | None = None) -> int:
         type=float,
         default=DEFAULT_DELAY_SECONDS,
         help=f"LLMを呼ぶ行ごとの待ち時間（秒）。既定 {DEFAULT_DELAY_SECONDS}",
+    )
+    parser.add_argument(
+        "--tag", default="", help="行にタグの指定が無いときに付けるタグ（1単語1タグ）"
+    )
+    parser.add_argument(
+        "--retag",
+        action="store_true",
+        help="登録済みの単語にもタグを付ける（既にタグがある単語は変更しない）",
     )
     args = parser.parse_args(argv)
 
@@ -214,6 +268,8 @@ def main(argv: list[str] | None = None) -> int:
             entries,
             dry_run=args.dry_run,
             delay=args.delay,
+            default_tag=normalize_tag(args.tag),
+            retag=args.retag,
         )
     finally:
         store.close()

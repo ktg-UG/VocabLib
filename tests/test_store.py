@@ -1,4 +1,6 @@
 """SQLiteデータアクセス層のテスト"""
+import sqlite3
+
 import pytest
 
 from src.db.store import DuplicateWordError, Store
@@ -66,6 +68,114 @@ def test_例文を保存できる(store):
     assert "postponed" in store.get_word(word_id).example_sentence
 
 
+# ── タグ ──────────────────────────────────────────────────────────────────
+
+def test_タグを付けて登録できる(store):
+    word_id = store.add_word("incorporation", "法人設立", "名詞", tag="TOEIC")
+    assert store.get_word(word_id).tag == "TOEIC"
+
+
+def test_タグを省略するとタグなしになる(store):
+    word_id = store.add_word("postpone", "延期する")
+    assert store.get_word(word_id).tag == ""
+
+
+def test_登録時にタグが正規化される(store):
+    """UIから `#TOEIC` の形のまま渡ってきても保存前に整える"""
+    word_id = store.add_word("postpone", "延期する", tag=" #TOEIC ")
+    assert store.get_word(word_id).tag == "TOEIC"
+
+
+def test_タグを後から付けられる(store):
+    word_id = store.add_word("postpone", "延期する")
+    store.set_word_tag(word_id, "TOEIC")
+
+    assert store.get_word(word_id).tag == "TOEIC"
+
+
+def test_タグを変えると未同期として拾われる(store):
+    """updated_at を進め忘れると、Supabaseに反映されないローカル変更ができる"""
+    word_id = store.add_word("postpone", "延期する")
+    store.mark_words_synced([word_id])
+    assert store.get_unsynced_words() == []
+
+    store.set_word_tag(word_id, "TOEIC")
+
+    assert [w["id"] for w in store.get_unsynced_words()] == [word_id]
+
+
+def test_使われているタグを語数の多い順に返す(store):
+    store.add_word("postpone", "延期する", tag="TOEIC")
+    store.add_word("abandon", "見捨てる", tag="TOEIC")
+    store.add_word("acquire", "獲得する", tag="ビジネス")
+
+    assert store.list_tags() == [
+        {"tag": "TOEIC", "count": 2},
+        {"tag": "ビジネス", "count": 1},
+    ]
+
+
+def test_タグなしの単語は一覧に含めない(store):
+    store.add_word("postpone", "延期する")
+    store.add_word("abandon", "見捨てる", tag="TOEIC")
+
+    assert store.list_tags() == [{"tag": "TOEIC", "count": 1}]
+
+
+def test_削除した単語はタグ一覧に数えない(store):
+    word_id = store.add_word("postpone", "延期する", tag="TOEIC")
+    store.soft_delete_word(word_id)
+
+    assert store.list_tags() == []
+
+
+# ── マイグレーション ──────────────────────────────────────────────────────
+
+def test_tag列の無い既存DBでも開ける(tmp_path):
+    """schema.sql の CREATE TABLE IF NOT EXISTS は既存テーブルに効かないため、
+    列の追加は _migrate() が担う。ここが無いと既存ユーザーだけ壊れる"""
+    db = tmp_path / "old.db"
+
+    # tag 列を持たない、Phase 7 以前のスキーマを手で作る
+    conn = sqlite3.connect(db)
+    conn.executescript(
+        """CREATE TABLE words (
+               id TEXT PRIMARY KEY, english TEXT NOT NULL, japanese TEXT NOT NULL,
+               part_of_speech TEXT, example_sentence TEXT,
+               created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+               deleted INTEGER NOT NULL DEFAULT 0, synced_at TEXT);
+           INSERT INTO words (id, english, japanese, created_at, updated_at)
+           VALUES ('w1', 'postpone', '延期する', '2026-01-01', '2026-01-01');"""
+    )
+    conn.commit()
+    conn.close()
+
+    s = Store(db)
+    try:
+        word = s.get_word("w1")
+        assert word is not None
+        assert word.tag == ""          # 既存行は「タグなし」になる
+        s.set_word_tag("w1", "TOEIC")  # 書き込みもできる
+        assert s.get_word("w1").tag == "TOEIC"
+    finally:
+        s.close()
+
+
+def test_マイグレーションは何度実行しても安全(tmp_path):
+    """起動のたびに走るのでべき等でなければならない"""
+    db = tmp_path / "test.db"
+    for _ in range(3):
+        s = Store(db)
+        s.close()
+
+    s = Store(db)
+    try:
+        word_id = s.add_word("postpone", "延期する", tag="TOEIC")
+        assert s.get_word(word_id).tag == "TOEIC"
+    finally:
+        s.close()
+
+
 # ── 出題する単語の選択 ────────────────────────────────────────────────────
 
 def test_単語が無ければNoneを返す(store):
@@ -94,6 +204,34 @@ def test_全て学習済みなら次回復習が最も近い単語が選ばれ�
     store.record_answer(b, is_correct=False)  # 5分後 ← こちらが近い
 
     assert store.get_next_word().english == "abandon"
+
+
+def test_タグを指定するとその単語だけ出題される(store):
+    store.add_word("postpone", "延期する", tag="TOEIC")
+    store.add_word("apple", "りんご", tag="日常")
+
+    assert store.get_next_word(tag="TOEIC").english == "postpone"
+
+
+def test_タグ指定は完全一致(store):
+    """1語1タグなので部分一致を考えなくてよい。TOEIC が TOEIC-Part5 を拾わない"""
+    store.add_word("postpone", "延期する", tag="TOEIC-Part5")
+
+    assert store.get_next_word(tag="TOEIC") is None
+
+
+def test_該当するタグの単語が無ければNone(store):
+    """勝手に絞り込みを解除して別の単語を出さない
+    （設定が効いていないように見えるため）"""
+    store.add_word("postpone", "延期する", tag="TOEIC")
+
+    assert store.get_next_word(tag="ビジネス") is None
+
+
+def test_タグを指定しなければ全単語から選ぶ(store):
+    store.add_word("postpone", "延期する", tag="TOEIC")
+
+    assert store.get_next_word() is not None
 
 
 def test_誤答候補は同じ品詞を優先する(store):

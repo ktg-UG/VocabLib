@@ -16,6 +16,7 @@ CREATE TABLE IF NOT EXISTS words (
     english           TEXT    NOT NULL,
     japanese          TEXT    NOT NULL,
     part_of_speech    TEXT,                         -- 品詞（auto-fillで埋める）
+    tag               TEXT    NOT NULL DEFAULT '',  -- 1単語1タグ。'' はタグなし
     example_sentence  TEXT,                         -- AI例文のキャッシュ
     created_at        TEXT    NOT NULL,
     updated_at        TEXT    NOT NULL,

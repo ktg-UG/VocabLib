@@ -216,3 +216,118 @@ def test_指定行とLLM補完行を混ぜられる(store):
 
     assert result.added == ["barely", "postpone"]
     assert llm.calls == ["postpone"]
+
+
+# ── タグ ──────────────────────────────────────────────────────────────────
+
+def test_4列目がタグとして読まれる():
+    entry = parse_entries("incorporation, 法人設立, 名詞, TOEIC")[0]
+
+    assert entry == Entry("incorporation", "法人設立", "名詞", "TOEIC")
+
+
+def test_単語行でもシャープ記法でタグを指定できる():
+    """Macの入力欄と同じ書き方をファイルでも使える"""
+    entry = parse_entries("yield #TOEIC")[0]
+
+    assert entry.english == "yield"
+    assert entry.tag == "TOEIC"
+    assert entry.needs_lookup is True
+
+
+def test_4列目はシャープ記法より優先される():
+    """書式が2通りあるので、どちらが勝つかを決めておく"""
+    entry = parse_entries("yield #ビジネス, 産出する, 動詞, TOEIC")[0]
+
+    assert entry.tag == "TOEIC"
+
+
+def test_タグは省略できる():
+    assert parse_entries("yield, 産出する, 動詞")[0].tag == ""
+
+
+def test_共通タグが指定の無い行に付く(store):
+    llm = FakeLLM({})
+
+    _import(store, llm, [Entry("yield", "産出する", "動詞")], default_tag="TOEIC")
+
+    assert store.list_words()[0].tag == "TOEIC"
+
+
+def test_行のタグが共通タグより優先される(store):
+    llm = FakeLLM({})
+
+    _import(
+        store, llm,
+        [Entry("yield", "産出する", "動詞", "ビジネス")],
+        default_tag="TOEIC",
+    )
+
+    assert store.list_words()[0].tag == "ビジネス"
+
+
+# ── --retag（登録済みの単語へのタグ付与） ─────────────────────────────────
+
+def test_retagで登録済みの単語にタグが付く(store):
+    word_id = store.add_word("yield", "産出する", "動詞")
+    llm = FakeLLM({})
+
+    result = _import(
+        store, llm, ["yield"], default_tag="TOEIC", retag=True
+    )
+
+    assert result.retagged == ["yield"]
+    assert result.skipped == []
+    assert store.get_word(word_id).tag == "TOEIC"
+
+
+def test_retagは既存のタグを上書きしない(store):
+    """1語1タグなので上書きは前のタグの消滅を意味する。
+    Webや # 記法で付けたタグをインポータが黙って消してはいけない"""
+    word_id = store.add_word("yield", "産出する", "動詞", tag="ビジネス")
+    llm = FakeLLM({})
+
+    result = _import(store, llm, ["yield"], default_tag="TOEIC", retag=True)
+
+    assert store.get_word(word_id).tag == "ビジネス"
+    assert result.skipped == ["yield"]
+    assert result.retagged == []
+
+
+def test_retagは何度実行しても結果が変わらない(store):
+    word_id = store.add_word("yield", "産出する", "動詞")
+    llm = FakeLLM({})
+
+    for _ in range(3):
+        _import(store, llm, ["yield"], default_tag="TOEIC", retag=True)
+
+    assert store.get_word(word_id).tag == "TOEIC"
+    assert store.count_words() == 1
+
+
+def test_retagを付けなければ従来どおりskipする(store):
+    word_id = store.add_word("yield", "産出する", "動詞")
+    llm = FakeLLM({})
+
+    result = _import(store, llm, ["yield"], default_tag="TOEIC")
+
+    assert result.skipped == ["yield"]
+    assert store.get_word(word_id).tag == ""
+
+
+def test_retagのdry_runでは書き換えない(store):
+    word_id = store.add_word("yield", "産出する", "動詞")
+    llm = FakeLLM({})
+
+    result = _import(
+        store, llm, ["yield"], default_tag="TOEIC", retag=True, dry_run=True
+    )
+
+    assert result.retagged == ["yield"]
+    assert store.get_word(word_id).tag == ""
+
+
+def test_タグ付与の件数が集計に出る():
+    summary = format_summary(ImportResult(retagged=["a", "b"]), dry_run=False)
+
+    assert "タグ付与 2語" in summary

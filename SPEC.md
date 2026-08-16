@@ -4,6 +4,7 @@
 
 | 日付       | 更新内容                         | 担当 |
 | ---------- | -------------------------------- | ---- |
+| 2026-08-16 | Phase 8（タグ機能）完了を反映。F-13「タグ」を追加し 12.11 を新設（1語1タグ・`#` 記法・`words.tag` 列・`_migrate()` によるマイグレーション方針）。5.1/5.2 に `tag` 列、12.6 に `tag` の同期を追記。**Macの「単語一覧...」を削除**（SPEC 1.4 の役割分担に従い、一覧はWebに一本化）。12.1 に `src/tags.py` を追記 | UG   |
 | 2026-08-16 | Phase 7 完了を反映。F-12「単語の一括インポート」を追加し、12.10を追加（カンマ区切りで和訳・品詞を直接指定できる書式、4択の誤答を同じ品詞から選ぶ仕様、v1の25語の移行方針）。品詞の正式な一覧を `db.store.PARTS_OF_SPEECH` に集約。9の当てずっぽう対策に品詞フィルタ導入を反映。12.5にGeminiの無料枠実測値（20req/日・5req/分）と有料化（前払い2000円）を追記 | UG   |
 | 2026-08-15 | 設計原則「1.4 Macアプリ と Webアプリ の役割分担」を追加（Macは登録・出題・統計数値のみ、複雑なUIはWeb）。これに伴い1.3の「Webからの単語編集は対象外」を撤回し、Webを書き込み可能とする方針に変更 | UG   |
 | 2026-08-15 | Phase 6（認証・デプロイ）完了を反映。F-08を「実装済（公開中）」、F-10を「実装済」に変更。本番URL `https://vocablib.vercel.app` を公開。Web側を `service_role` から `anon`＋Googleログインに切替え、RLSポリシー（select のみ）を追加。Mac側に `SUPABASE_USER_ID` を追加。12.8「認証とデプロイ」を追加 | UG   |
@@ -63,6 +64,8 @@ PC作業中に英単語を強制的・自動的に出題し、意思に依存し
 この原則により、以下が決まる。
 
 - Macアプリに一覧・検索・編集・削除のUIを作らない
+  （Phase 8 で「単語一覧...」を削除し、原則どおりに揃えた。
+  **Webに一覧ができるまで、登録済みの単語を画面で確認する手段は無い**）
 - **Webは読み取り専用ではない。** 編集・削除を担うため書き込み権限を持つ
   （1.3 の「Webからの単語編集は対象外」は本原則により撤回。RLSに更新ポリシーが必要）
 - 迷ったときの判断基準は「**それは作業中に3秒で終わる操作か？**」
@@ -90,7 +93,7 @@ PC作業中に英単語を強制的・自動的に出題し、意思に依存し
 | クラウドDB / バックエンド | Supabase（PostgreSQL / Auth / Edge Functions / 自動REST API） |
 | Webフロント               | Next.js 16（App Router）/ TypeScript / Tailwind CSS v4 / Recharts / Vitest |
 | Webホスティング           | Vercel                                                        |
-| LLM（主）                 | Google Gemini（`gemini-3.7-flash`、無料枠）                   |
+| LLM（主）                 | Google Gemini（`gemini-3.7-flash`、従量課金）                 |
 | LLM（従）                 | ローカルLLM（Ollama / gemma3:4b）                             |
 | LLM（最終保険）           | ローカル生成（`"word" means "meaning"`）                    |
 | パッケージ管理            | uv（Python） / npm or pnpm（Web）                             |
@@ -117,6 +120,7 @@ PC作業中に英単語を強制的・自動的に出題し、意思に依存し
 | F-10 | 認証（Googleログイン）        | Webの本人限定アクセス／RLS                        | **実装済**（Phase 6）。12.8参照 |
 | F-11 | Webでテスト受験               | スマホから出題・回答（Tier2）                     | 対象外（将来）   |
 | F-12 | 単語の一括インポート          | テキストファイルから複数語をまとめて登録          | **実装済**（Phase 7）。12.10参照 |
+| F-13 | タグ                          | 単語を1つのタグで分類し、出題を絞り込む          | **実装済**（Phase 8）。12.11参照 |
 
 ### 4.2 各機能の詳細（主要のみ）
 
@@ -169,6 +173,7 @@ answer_log       回答イベント履歴（追記のみ・不変）→ 統計�
 | english                 | text        | ○   | 英単語                                |
 | japanese                | text        | ○   | 和訳                                  |
 | part_of_speech          | text        |      | 品詞（auto-fill）                     |
+| tag                     | text        | ○   | タグ（1語1タグ・`''` はタグなし）    |
 | example_sentence        | text        |      | AI例文キャッシュ                      |
 | created_at / updated_at | timestamptz | ○   | 作成・更新時刻                        |
 | deleted                 | boolean     | ○   | 論理削除                              |
@@ -335,16 +340,17 @@ Vercel の環境変数にも登録しない。
 | `src/srs/spaced_repetition.py` | SM-2。純粋関数のみでDB/UIに非依存 |
 | `src/quiz.py` | `build_quiz()`。出題単語と選択肢を決める。UIに非依存 |
 | `src/config.py` | `.env` 読み込みと既定値 |
+| `src/tags.py` | タグの正規化と `#` 記法のパース（純粋関数） |
 | `src/llm/parsing.py` | LLM出力の抽出・検証（純粋関数） |
 | `src/llm/base.py` | Provider共通インターフェース |
 | `src/llm/gemini.py` / `ollama.py` | 各LLMの呼び出し |
 | `src/llm/client.py` | `LLMClient`。3段フォールバックの司令塔 |
 | `src/sync/remote.py` | `RemoteClient` Protocol と `SupabaseClient` |
 | `src/sync/engine.py` | `SyncEngine`。push / pull / LWW |
-| `src/ui/menubar.py` | `VocabLibApp`（rumps）。タイマーとメニュー |
+| `src/ui/menubar.py` | `VocabLibApp`（rumps）。タイマー・メニュー・出題タグの切替 |
 | `src/ui/panel.py` | `QuizPanel`（NSPanel）。4択表示と正誤演出 |
 | `src/ui/add_word_panel.py` | `AddWordPanel`。単語追加の確認フォーム |
-| `src/ui/dialogs.py` | 単語登録フロー・単語一覧・統計 |
+| `src/ui/dialogs.py` | 単語登録フロー・統計 |
 | `src/tools/import_words.py` | 単語の一括インポートCLI（`python -m`） |
 | `src/main.py` | エントリポイント |
 | `web/lib/stats.ts` | 統計の集計（純粋関数）。SupabaseもReactもimportしない |
@@ -462,6 +468,8 @@ pull: words → learning_records → answer_log
   比較と更新をSQL 1文（`WHERE excluded.updated_at > ...`）で行うため原子的。
 - `answer_log` … 追記のみ・不変なのでLWW不要。`INSERT OR IGNORE`。
 - 取り込んだ行は `updated_at` をリモート値のまま入れ `synced_at = now` にする。
+- `words.tag`（Phase 8）は列が1つ増えただけなので、この仕様に変更は無い。
+  列を足す前にSupabaseへ入った行は `tag` が欠けているため `''` として取り込む。
   これを怠ると「pull → 変更扱い → push」の無限ピンポンになる。
 - 時刻はISO8601のUTC文字列として**文字列比較**する。Postgres由来の `Z` 表記等は
   取り込み時に正規化する。
@@ -679,6 +687,75 @@ v1のSM-2にはEFが回復しないバグがあり、歪んだ値を持ち込む
 
 動作確認用に登録していたテストデータ（apple / lemon など）は、この移行に合わせて
 ローカルDB・Supabaseの両方から削除した。
+
+### 12.11 タグ機能（Phase 8）
+
+#### 決定事項
+
+| 論点 | 決定 |
+| ---- | ---- |
+| 個数 | **1単語につき1タグ** |
+| 持ち方 | `words.tag`（`text not null default ''`）。別テーブルにしない |
+| 用途 | 出題の絞り込み / 一覧の分類。**タグ別統計はやらない** |
+| 入力 | 英単語の入力欄に `incorporation #TOEIC` と書く。`#` 以降がタグ |
+
+別テーブルにしなかったのは同期のコストが理由。列を1つ増やすだけなら
+`SyncEngine` もRLSポリシーも変更が要らない。4つ目のテーブルにすると
+「push / pull / 墓標 / LWW / RLS」を新たに設計することになる。
+
+#### 正規化（`src/tags.py`）
+
+`normalize_tag()` を通してから保存する。前後の空白を除去し、先頭の `#` を取り、
+カンマを除去する（インポータの区切り文字と衝突するため）。内側の空白と
+大文字小文字は保つ。**`toeic` と `TOEIC` は同一視しない**（メニューから選べるので、
+手で打ち直す機会が少ない）。
+
+`parse_word_input()` は**最初の `#` で1回だけ**分割する。
+英単語側に空白を含むフレーズ（`extend an invitation to`）があるため、空白では切れない。
+
+#### スキーマ変更の手順（重要）
+
+`schema.sql` は `CREATE TABLE IF NOT EXISTS` なので、**既存DBには効かない**。
+列を書き足しただけでは手元のDBに生えず、新規インストールでしか動かない変更になる。
+
+**列の追加は必ず `Store._migrate()` に書く。** 起動のたびに走るのでべき等にすること。
+
+```python
+columns = {row["name"] for row in self._conn.execute("PRAGMA table_info(words)")}
+if "tag" not in columns:
+    self._conn.execute("ALTER TABLE words ADD COLUMN tag TEXT NOT NULL DEFAULT ''")
+```
+
+Supabase側は `supabase_schema.sql` の `alter table ... add column if not exists` を
+SQL Editorで実行する。
+
+#### 出題の絞り込み
+
+- `Store.get_next_word(tag)` … 1語1タグなので `WHERE tag = ?` の完全一致
+- メニューバーの「出題するタグ ▸」で切り替え、`sync_state` の `quiz_tag_filter` に保存
+  （再起動後も維持）
+- 該当が0件でも**勝手に絞り込みを解除しない**（設定が効いていないように見えるため）。
+  ただし選択中のタグの単語が1語も無くなったらメニューから消えるので「すべて」に戻す
+- **4択の誤答はタグで絞らない。** 絞ると在庫が枯れて同じ4語が並び、
+  綴りではなく位置で覚えてしまう。誤答に必要なのは品詞が揃っていること（12.10）
+
+#### 一括インポート
+
+4列目がタグ（`incorporation, 法人設立, 名詞, TOEIC`）。1列目の `#` 記法も使えるが、
+**4列目があればそちらを優先**する。
+
+| オプション | 意味 |
+| ---------- | ---- |
+| `--tag TOEIC` | 行に指定が無いときに使う共通タグ |
+| `--retag` | 登録済みの単語にもタグを付ける。**既にタグがある単語は変更しない** |
+
+`--retag` が上書きしないのは、1語1タグでは上書き＝前のタグの消滅であり、
+Webや `#` 記法で付けたタグをインポータが黙って消すことになるため。
+
+#### 同期
+
+`tag` は `words` の列なので、`SyncEngine` のロジックは変更なし。
+LWWもRLSも既存のまま効く。列を足す前にSupabaseへ入った行は `''` として取り込む。
 
 ---
 

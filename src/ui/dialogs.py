@@ -1,4 +1,8 @@
-"""ダイアログ（単語登録・単語一覧・統計表示）"""
+"""ダイアログ（単語登録・統計表示）
+
+単語一覧はここに置かない。**Macアプリは登録・出題・統計の数値確認のみ**とし、
+一覧・編集・可視化はWebに置く（SPEC 1.4 の役割分担）。
+"""
 from __future__ import annotations
 
 import threading
@@ -10,9 +14,8 @@ from PyObjCTools.AppHelper import callAfter
 
 from ..db.store import DuplicateWordError, Store
 from ..llm import LLMClient
+from ..tags import parse_word_input
 from .add_word_panel import AddWordPanel
-
-MAX_LISTED_WORDS = 40
 
 
 def notify(subtitle: str, message: str = "") -> None:
@@ -42,16 +45,26 @@ def prompt_add_word(
     Returns:
         開いた AddWordPanel。英単語の入力がキャンセルされたら None
     """
-    english = _ask("追加する英単語を入力してください", title="単語を追加")
+    entered = _ask(
+        "追加する英単語を入力してください（`#TOEIC` のように書くとタグが付きます）",
+        title="単語を追加",
+    )
+    if not entered:
+        if on_close is not None:
+            on_close()
+        return None
+
+    # `incorporation #TOEIC` を英単語とタグに分ける。フレーズも扱えるよう `#` で切る
+    english, tag = parse_word_input(entered)
     if not english:
         if on_close is not None:
             on_close()
         return None
 
-    def save(en: str, ja: str, pos: str | None) -> bool:
+    def save(en: str, ja: str, pos: str | None, word_tag: str) -> bool:
         """登録できたら True。False を返すとフォームは閉じずに残る"""
         try:
-            store.add_word(en, ja, pos)
+            store.add_word(en, ja, pos, tag=word_tag)
         except DuplicateWordError:
             rumps.alert(title="登録済み", message=f"「{en}（{ja}）」は既に登録されています。")
             return False
@@ -65,6 +78,7 @@ def prompt_add_word(
         english,
         on_save=save,
         on_close=on_close if on_close is not None else (lambda: None),
+        tag=tag,
     )
     panel.show()
     _autofill_async(panel, llm, english)
@@ -106,20 +120,6 @@ def _ask(message: str, title: str, default_text: str = "") -> str | None:
     if not response.clicked:
         return None
     return response.text.strip()
-
-
-def show_words(store: Store) -> None:
-    """登録済みの単語を一覧表示する"""
-    words = store.list_words()
-    if not words:
-        rumps.alert(title="単語一覧", message="まだ単語が登録されていません。")
-        return
-
-    lines = [f"{w.english} — {w.japanese}" for w in words[:MAX_LISTED_WORDS]]
-    if len(words) > MAX_LISTED_WORDS:
-        lines.append(f"...ほか {len(words) - MAX_LISTED_WORDS} 語")
-
-    rumps.alert(title=f"単語一覧（{len(words)}語）", message="\n".join(lines))
 
 
 def show_stats(store: Store) -> None:

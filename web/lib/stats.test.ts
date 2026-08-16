@@ -34,6 +34,7 @@ const word = (id: string, english: string, japanese: string): WordRow => ({
   english,
   japanese,
   part_of_speech: null,
+  tag: "",
   example_sentence: null,
   created_at: "2026-08-01T00:00:00+00:00",
   updated_at: "2026-08-01T00:00:00+00:00",

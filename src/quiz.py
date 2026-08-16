@@ -28,22 +28,27 @@ class Quiz:
         return self.choices[self.correct_index]
 
 
-def build_quiz(store: Store, choice_count: int = 4) -> Quiz | None:
+def build_quiz(
+    store: Store, choice_count: int = 4, tag: str | None = None
+) -> Quiz | None:
     """次に出題する単語を選び、選択肢を組み立てる。
 
     Args:
         store: データアクセス層
         choice_count: 選択肢の数（正解を含む）
+        tag: 指定するとそのタグの単語だけを出題する
 
     Returns:
         Quiz。出題できる単語が1つも無ければ None
     """
-    word = store.get_next_word()
+    word = store.get_next_word(tag=tag)
     if word is None:
         return None
 
     # 同じ品詞の単語から誤答を選ぶ。品詞が混ざると消去法で正解できてしまい、
-    # SM-2が「覚えた」と誤判定する
+    # SM-2が「覚えた」と誤判定する。
+    # 一方 tag では絞らない。絞ると選択肢の在庫が枯れて同じ4語が並び、
+    # 綴りではなく位置で覚えてしまうため
     distractors = store.get_distractor_meanings(
         word.id,
         limit=choice_count - 1,

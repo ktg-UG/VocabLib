@@ -34,14 +34,18 @@ from ..llm import WordInfo
 POS_UNSET = "（未設定）"
 POS_OPTIONS = [POS_UNSET, *PARTS_OF_SPEECH]
 
+# ボタンの識別子（NSButton の tag）。単語に付ける「タグ」とは別物なので注意
 TAG_EDIT_ENGLISH = 0
 TAG_EDIT_JAPANESE = 1
 TAG_SAVE = 2
 TAG_CANCEL = 3
+TAG_EDIT_WORD_TAG = 4
 
 PANEL_WIDTH = 380
-PANEL_HEIGHT = 190
+PANEL_HEIGHT = 220
 LOADING_TEXT = "取得中..."
+# タグ未設定のときの表示。空欄だと入力できる場所だと分からないため
+TAG_UNSET_TEXT = "（なし）"
 
 
 class _AddWordDelegate(NSObject):
@@ -58,16 +62,19 @@ class AddWordPanel:
     def __init__(
         self,
         english: str,
-        on_save: Callable[[str, str, str | None], bool],
+        on_save: Callable[[str, str, str | None, str], bool],
         on_close: Callable[[], None],
+        tag: str = "",
     ):
         """
         Args:
-            on_save: (英単語, 和訳, 品詞) を受け取り、登録できたら True を返す。
+            on_save: (英単語, 和訳, 品詞, タグ) を受け取り、登録できたら True を返す。
                 False ならフォームを開いたままにする（重複などを直せるように）。
             on_close: フォームが閉じたとき（保存・キャンセル・×のいずれでも）
+            tag: 英単語欄に `#TOEIC` と書かれていた場合のタグ。無ければ空文字
         """
         self._english = english
+        self._tag = tag
         self._on_save = on_save
         self._on_close = on_close
 
@@ -76,6 +83,7 @@ class AddWordPanel:
         self._english_field = None
         self._japanese_field = None
         self._pos_popup = None
+        self._tag_field = None
         self._closed = False
 
     # ── 表示 ─────────────────────────────────────────────────────────────
@@ -142,6 +150,17 @@ class AddWordPanel:
         content.addSubview_(popup)
         self._pos_popup = popup
 
+        # タグ（`#` 記法で指定済みならその値。オートフィルの対象にはしない）
+        content.addSubview_(_label("タグ", NSMakeRect(16, height - 164, 60, 20), size=12))
+        self._tag_field = _value_field(
+            self._tag or TAG_UNSET_TEXT, NSMakeRect(80, height - 166, 200, 22)
+        )
+        content.addSubview_(self._tag_field)
+        content.addSubview_(
+            _button("修正", NSMakeRect(288, height - 168, 70, 26),
+                    TAG_EDIT_WORD_TAG, delegate)
+        )
+
         content.addSubview_(
             _button("キャンセル", NSMakeRect(186, 14, 90, 28), TAG_CANCEL, delegate)
         )
@@ -184,6 +203,12 @@ class AddWordPanel:
             self._enable_editing(self._english_field)
         elif tag == TAG_EDIT_JAPANESE:
             self._enable_editing(self._japanese_field)
+        elif tag == TAG_EDIT_WORD_TAG:
+            # 「（なし）」を消してから編集させる（そのまま打ち足させない）
+            if self._tag_field is not None:
+                if self._tag_field.stringValue().strip() == TAG_UNSET_TEXT:
+                    self._tag_field.setStringValue_("")
+            self._enable_editing(self._tag_field)
         elif tag == TAG_CANCEL:
             self.close()
         elif tag == TAG_SAVE:
@@ -205,8 +230,12 @@ class AddWordPanel:
         pos = self._pos_popup.titleOfSelectedItem() if self._pos_popup else POS_UNSET
         part_of_speech = None if pos == POS_UNSET else pos
 
+        tag = self._tag_field.stringValue().strip() if self._tag_field else ""
+        if tag == TAG_UNSET_TEXT:
+            tag = ""
+
         # 登録できたら閉じる。できなければ（重複など）開いたままにして直させる
-        if self._on_save(english, japanese, part_of_speech):
+        if self._on_save(english, japanese, part_of_speech, tag):
             self.close()
 
     # ── 終了 ─────────────────────────────────────────────────────────────

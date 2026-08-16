@@ -342,3 +342,42 @@ def test_同期は多重に実行されない(store):
 
     assert result.skipped
     assert not result.ok
+
+
+# ── タグの同期 ────────────────────────────────────────────────────────────
+
+def test_タグがpushされる(store):
+    store.add_word("incorporation", "法人設立", "名詞", tag="TOEIC")
+    remote = FakeRemote()
+
+    SyncEngine(store, remote).sync()
+
+    assert remote.pushed["words"][0]["tag"] == "TOEIC"
+
+
+def test_タグがpullされる(store):
+    remote = FakeRemote(tables={"words": [{
+        "id": "w1", "english": "yield", "japanese": "産出する",
+        "part_of_speech": "動詞", "tag": "TOEIC", "example_sentence": None,
+        "created_at": "2026-08-16T00:00:00+00:00",
+        "updated_at": "2026-08-16T00:00:00+00:00", "deleted": False,
+    }]})
+
+    SyncEngine(store, remote).sync()
+
+    assert store.get_word("w1").tag == "TOEIC"
+
+
+def test_リモート行にtagが無くても落ちない(store):
+    """Supabaseに列を足す前に入った行が返ってくる場合"""
+    remote = FakeRemote(tables={"words": [{
+        "id": "w1", "english": "yield", "japanese": "産出する",
+        "part_of_speech": "動詞", "example_sentence": None,
+        "created_at": "2026-08-16T00:00:00+00:00",
+        "updated_at": "2026-08-16T00:00:00+00:00", "deleted": False,
+    }]})
+
+    result = SyncEngine(store, remote).sync()
+
+    assert result.ok
+    assert store.get_word("w1").tag == ""

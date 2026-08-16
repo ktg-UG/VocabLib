@@ -10,6 +10,7 @@ export type WordRow = {
   english: string;
   japanese: string;
   part_of_speech: string | null;
+  tag: string; // 1単語1タグ。"" はタグなし（表示は Phase 9 の単語一覧で行う）
   example_sentence: string | null;
   created_at: string;
   updated_at: string;
