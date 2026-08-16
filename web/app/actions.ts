@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 
 import type { AddWordState } from "@/components/AddWordForm";
 import type { EditWordState } from "@/components/WordsView";
+import { generateExample, lookupWord } from "@/lib/llm/gemini";
 import { normalizeTag, parseWordInput } from "@/lib/tags";
 import { createClient } from "@/lib/supabase/server";
 
@@ -141,4 +142,59 @@ export async function deleteWord(
 
   revalidatePath("/words");
   return { saved: true };
+}
+
+/**
+ * 和訳と品詞をLLMで引く（オートフィル）。
+ *
+ * フォーム送信ではなくボタン押下から直接呼ぶので、FormData ではなく
+ * 素の引数を受ける。Server Action は直接POSTできるため、ここでも認証を見る。
+ */
+export async function autofillWord(
+  english: string,
+): Promise<{ japanese?: string; partOfSpeech?: string | null; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "ログインが必要です。" };
+
+  const [word] = parseWordInput(english);
+  if (!word) return { error: "英単語を入力してください。" };
+
+  const info = await lookupWord(word);
+  if (!info) {
+    // Web側は Ollama に落とせないので、失敗は失敗として見せる（6-1）
+    return { error: "取得できませんでした。手で入力してください。" };
+  }
+  return { japanese: info.japanese, partOfSpeech: info.partOfSpeech };
+}
+
+/**
+ * 例文を作り直す。
+ *
+ * **その場では保存しない。** 生成結果を欄に入れて返すだけにして、
+ * 気に入らなければ保存せず捨てられるようにする
+ * （`memo.txt` の「LLMがハズレを出したとき直せない」への対応なので、
+ * 直せない結果でまた上書きされては意味がない）。
+ */
+export async function regenerateExample(
+  english: string,
+  japanese: string,
+): Promise<{ sentence?: string; error?: string }> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "ログインが必要です。" };
+
+  if (!english || !japanese) return { error: "英単語と和訳が必要です。" };
+
+  const sentence = await generateExample(english, japanese);
+  if (!sentence) {
+    // 対象単語を含まない例文はここで弾かれている。
+    // 覚える助けにならないものを保存させない
+    return { error: "生成できませんでした。もう一度試すか、手で入力してください。" };
+  }
+  return { sentence };
 }

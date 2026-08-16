@@ -12,6 +12,11 @@ async function noop(): Promise<EditWordState> {
   return { error: "モック画面では保存しません（本番の /words で動きます）。" };
 }
 
+async function noRegenerate() {
+  "use server";
+  return { error: "モック画面ではLLMを呼びません。" };
+}
+
 export default function MockWords() {
   if (process.env.NODE_ENV === "production") notFound();
 
@@ -24,6 +29,7 @@ export default function MockWords() {
         records={records}
         onUpdate={noop}
         onDelete={noop}
+        onRegenerate={noRegenerate}
       />
     </Shell>
   );

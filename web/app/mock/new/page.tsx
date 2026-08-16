@@ -11,6 +11,11 @@ async function noop(): Promise<AddWordState> {
   return { error: "モック画面では保存しません。" };
 }
 
+async function noAutofill() {
+  "use server";
+  return { error: "モック画面ではLLMを呼びません。" };
+}
+
 export default function MockNewWord() {
   if (process.env.NODE_ENV === "production") notFound();
 
@@ -19,6 +24,7 @@ export default function MockNewWord() {
       <Section title="単語を追加">
         <AddWordForm
           action={noop}
+          autofill={noAutofill}
           disabledReason="モック画面のため保存できません（本番の /words/new で動きます）"
         />
       </Section>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
+import { useActionState, useMemo, useRef, useState, useTransition } from "react";
 
 import { PARTS_OF_SPEECH } from "@/components/AddWordForm";
 
@@ -29,17 +29,25 @@ type WordAction = (
   formData: FormData,
 ) => Promise<EditWordState>;
 
+export type RegenerateAction = (
+  english: string,
+  japanese: string,
+) => Promise<{ sentence?: string; error?: string }>;
+
 export function WordsView({
   words,
   records,
   onUpdate,
   onDelete,
+  onRegenerate,
 }: {
   words: WordRow[];
   records: RecordRow[];
   /** 省略するとモック（読み取り専用）として動く */
   onUpdate?: WordAction;
   onDelete?: WordAction;
+  /** 省略すると例文の再生成ボタンを出さない（APIキー未設定など） */
+  onRegenerate?: RegenerateAction;
 }) {
   const [query, setQuery] = useState("");
   const [tag, setTag] = useState<string | null>(null);
@@ -98,6 +106,7 @@ export function WordsView({
               }
               onUpdate={onUpdate}
               onDelete={onDelete}
+              onRegenerate={onRegenerate}
             />
           ))}
         </ul>
@@ -118,12 +127,14 @@ function WordRowItem({
   onToggle,
   onUpdate,
   onDelete,
+  onRegenerate,
 }: {
   summary: WordSummary;
   open: boolean;
   onToggle: () => void;
   onUpdate?: WordAction;
   onDelete?: WordAction;
+  onRegenerate?: RegenerateAction;
 }) {
   const { word, accuracy, seen, correct, dueInDays } = summary;
 
@@ -158,6 +169,7 @@ function WordRowItem({
             accuracy={accuracy}
             onUpdate={onUpdate}
             onDelete={onDelete}
+            onRegenerate={onRegenerate}
           />
         ) : (
           <div className="grid gap-2 pb-3 pl-1 text-xs text-ink-mute">
@@ -294,6 +306,7 @@ function EditForm({
   accuracy,
   onUpdate,
   onDelete,
+  onRegenerate,
 }: {
   word: WordRow;
   seen: number;
@@ -301,10 +314,38 @@ function EditForm({
   accuracy: number | null;
   onUpdate: WordAction;
   onDelete: WordAction;
+  onRegenerate?: RegenerateAction;
 }) {
   const [updateState, update, updating] = useActionState(onUpdate, {});
   const [deleteState, remove, removing] = useActionState(onDelete, {});
   const [confirming, setConfirming] = useState(false);
+  const [regenerating, startRegenerate] = useTransition();
+  const [regenerateError, setRegenerateError] = useState<string | null>(null);
+  const exampleRef = useRef<HTMLTextAreaElement>(null);
+  const japaneseRef = useRef<HTMLInputElement>(null);
+
+  /**
+   * 例文を作り直す。**その場では保存せず、欄に入れるだけ。**
+   * 気に入らなければ保存せず捨てられるようにする
+   * （ハズレを直すための機能なので、ハズレでまた上書きされては意味がない）。
+   */
+  const regenerate = () => {
+    if (!onRegenerate) return;
+    setRegenerateError(null);
+    startRegenerate(async () => {
+      const result = await onRegenerate(
+        word.english,
+        japaneseRef.current?.value ?? word.japanese,
+      );
+      if (result.error) {
+        setRegenerateError(result.error);
+        return;
+      }
+      if (exampleRef.current && result.sentence) {
+        exampleRef.current.value = result.sentence;
+      }
+    });
+  };
 
   const error = updateState.error ?? deleteState.error;
 
@@ -322,6 +363,7 @@ function EditForm({
         <label className="flex flex-col gap-1 sm:col-span-2">
           <span className="text-[11px] text-ink-weak">和訳</span>
           <input
+            ref={japaneseRef}
             name="japanese"
             defaultValue={word.japanese}
             required
@@ -351,14 +393,35 @@ function EditForm({
         </label>
 
         <label className="flex flex-col gap-1 sm:col-span-2">
-          <span className="text-[11px] text-ink-weak">例文</span>
+          <span className="flex items-center gap-2 text-[11px] text-ink-weak">
+            例文
+            {onRegenerate && (
+              <button
+                type="button"
+                onClick={regenerate}
+                disabled={regenerating}
+                className="rounded border border-border px-1.5 py-0.5 text-[11px] text-ink-mute transition hover:text-ink disabled:opacity-40"
+              >
+                {regenerating ? "生成中..." : "再生成"}
+              </button>
+            )}
+            {regenerateError && (
+              <span className="text-negative">{regenerateError}</span>
+            )}
+          </span>
           <textarea
+            ref={exampleRef}
             name="example_sentence"
             defaultValue={word.example_sentence ?? ""}
             rows={2}
             placeholder="不正解のときに自動生成されます"
             className={editInput}
           />
+          {onRegenerate && (
+            <span className="text-[11px] text-ink-weak">
+              再生成しても保存は押すまで反映されません
+            </span>
+          )}
         </label>
 
         <div className="flex items-center gap-2 sm:col-span-2">

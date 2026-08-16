@@ -3,8 +3,9 @@ import { redirect } from "next/navigation";
 import { ErrorPanel, Shell } from "@/components/Shell";
 import { WordsView } from "@/components/WordsView";
 
-import { deleteWord, updateWord } from "../actions";
+import { deleteWord, regenerateExample, updateWord } from "../actions";
 import { fetchDashboardData } from "@/lib/supabase/data";
+import { isGeminiConfigured } from "@/lib/llm/gemini";
 import { createClient } from "@/lib/supabase/server";
 
 // 編集・削除の Server Action はこのページから呼ばれる
@@ -53,6 +54,7 @@ export default async function WordsPage() {
         records={records}
         onUpdate={updateWord}
         onDelete={deleteWord}
+        onRegenerate={isGeminiConfigured() ? regenerateExample : undefined}
       />
     </Shell>
   );

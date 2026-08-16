@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useRef, useState, useTransition } from "react";
 
 import { parseWordInput } from "@/lib/tags";
 
@@ -18,6 +18,12 @@ export const PARTS_OF_SPEECH = [
 
 export type AddWordState = { error?: string; added?: string };
 
+export type AutofillAction = (english: string) => Promise<{
+  japanese?: string;
+  partOfSpeech?: string | null;
+  error?: string;
+}>;
+
 /**
  * 単語の新規登録フォーム
  *
@@ -30,15 +36,49 @@ export type AddWordState = { error?: string; added?: string };
  */
 export function AddWordForm({
   action,
+  autofill,
   disabledReason,
 }: {
   action: (state: AddWordState, formData: FormData) => Promise<AddWordState>;
+  /** 省略するとオートフィルのボタンを出さない（APIキー未設定など） */
+  autofill?: AutofillAction;
   disabledReason?: string;
 }) {
   const [state, formAction, pending] = useActionState(action, {});
+  const [autofilling, startAutofill] = useTransition();
+  const [autofillError, setAutofillError] = useState<string | null>(null);
+  const formRef = useRef<HTMLFormElement>(null);
+
+  /**
+   * 和訳・品詞をLLMで埋める。
+   * **既に入力済みの欄は上書きしない**（手で直した内容を消さないため）。
+   */
+  const runAutofill = () => {
+    const form = formRef.current;
+    if (!form || !autofill) return;
+
+    const english = field(form, "english")?.value ?? "";
+    setAutofillError(null);
+
+    startAutofill(async () => {
+      const result = await autofill(english);
+      if (result.error) {
+        setAutofillError(result.error);
+        return;
+      }
+      const japanese = field(form, "japanese");
+      if (japanese && !japanese.value.trim() && result.japanese) {
+        japanese.value = result.japanese;
+      }
+      const pos = form.elements.namedItem("part_of_speech");
+      if (pos instanceof HTMLSelectElement && !pos.value && result.partOfSpeech) {
+        pos.value = result.partOfSpeech;
+      }
+    });
+  };
 
   return (
-    <form action={formAction} className="flex max-w-lg flex-col gap-4">
+    <form ref={formRef} action={formAction} className="flex max-w-lg flex-col gap-4">
       <Field
         label="英単語"
         hint={
@@ -70,7 +110,27 @@ export function AddWordForm({
       </Field>
 
       <Field label="和訳">
-        <input name="japanese" required autoComplete="off" className={inputClass} />
+        <div className="flex gap-2">
+          <input
+            name="japanese"
+            required
+            autoComplete="off"
+            className={inputClass}
+          />
+          {autofill && (
+            <button
+              type="button"
+              onClick={runAutofill}
+              disabled={autofilling}
+              className="shrink-0 rounded-md border border-border px-3 py-2 text-xs whitespace-nowrap text-ink-mute transition hover:text-ink disabled:opacity-40"
+            >
+              {autofilling ? "取得中..." : "オートフィル"}
+            </button>
+          )}
+        </div>
+        {autofillError && (
+          <span className="text-[11px] text-negative">{autofillError}</span>
+        )}
       </Field>
 
       <div className="grid grid-cols-2 gap-4">
@@ -136,4 +196,10 @@ function Field({
       {hint && <span className="text-[11px] text-ink-weak">{hint}</span>}
     </label>
   );
+}
+
+
+function field(form: HTMLFormElement, name: string): HTMLInputElement | null {
+  const element = form.elements.namedItem(name);
+  return element instanceof HTMLInputElement ? element : null;
 }
