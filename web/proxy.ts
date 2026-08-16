@@ -11,7 +11,13 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC_PATHS = ["/login", "/auth"];
+// デザイン検討用のモックは開発時のみ、ログイン無しで開けるようにする
+// （Supabaseのセッションを用意しなくても画面を確認できるようにするため。
+//   本番では /mock 自体が notFound になる）
+const PUBLIC_PATHS =
+  process.env.NODE_ENV === "production"
+    ? ["/login", "/auth"]
+    : ["/login", "/auth", "/mock"];
 
 export async function proxy(request: NextRequest) {
   let response = NextResponse.next({ request });

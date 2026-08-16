@@ -10,10 +10,13 @@ export function Shell({
   children,
   email,
   current,
+  base = "",
 }: {
   children: React.ReactNode;
   email?: string;
   current: "dashboard" | "words";
+  /** モック（/mock）から使うときのプレフィックス。本番は空 */
+  base?: string;
 }) {
   return (
     <main className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
@@ -36,8 +39,12 @@ export function Shell({
 
       {/* タブ。下線1本だけで現在地を示す（枠で囲むと見出しと競合する） */}
       <nav className="mb-8 flex gap-5 border-b border-border text-sm">
-        <Tab href="/" label="ダッシュボード" active={current === "dashboard"} />
-        <Tab href="/words" label="単語" active={current === "words"} />
+        <Tab
+          href={base || "/"}
+          label="ダッシュボード"
+          active={current === "dashboard"}
+        />
+        <Tab href={`${base}/words`} label="単語" active={current === "words"} />
       </nav>
 
       <div className="flex flex-col gap-10">{children}</div>
