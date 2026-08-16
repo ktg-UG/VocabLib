@@ -93,15 +93,15 @@ export function StreakHeatmap({
       {/* 週数が増えると横に伸びるのでスクロールさせる。
           曜日ラベルは一緒に流れないよう、スクロール領域の外に置く */}
       <div className="flex gap-2">
+        {/* 曜日は7つとも書く。GitHubの草が月・水・金だけなのはマスが小さくて
+            7つ並べると潰れるからで、行間隔が16pxあるここでは当てはまらない。
+            間引くと「なぜこの3つなのか」を読み手に考えさせるだけ損 */}
         <div
           className="flex shrink-0 flex-col text-[10px] text-ink-weak"
           style={{ marginTop: MONTH_ROW, gap: GAP }}
         >
-          {["", "月", "", "水", "", "金", ""].map((label, i) => (
-            <span
-              key={i}
-              style={{ height: CELL, lineHeight: `${CELL}px` }}
-            >
+          {["日", "月", "火", "水", "木", "金", "土"].map((label) => (
+            <span key={label} style={{ height: CELL, lineHeight: `${CELL}px` }}>
               {label}
             </span>
           ))}
