@@ -85,3 +85,47 @@ def test_正解の位置が固定されない(store):
 def test_選択肢数を指定できる(store):
     _add_words(store, 6)
     assert len(build_quiz(store, choice_count=3).choices) == 3
+
+
+# ── 品詞をそろえた誤答 ────────────────────────────────────────────────────
+
+def test_誤答は同じ品詞から選ばれる(store):
+    """品詞が混ざると意味を知らなくても消去法で正解できてしまう"""
+    store.add_word("postpone", "延期する", part_of_speech="動詞")
+    store.add_word("acquire", "獲得する", part_of_speech="動詞")
+    store.add_word("assert", "主張する", part_of_speech="動詞")
+    store.add_word("expand", "拡大する", part_of_speech="動詞")
+    for english, japanese in [("apple", "りんご"), ("residue", "残り"), ("interim", "合間")]:
+        store.add_word(english, japanese, part_of_speech="名詞")
+
+    verbs = {"延期する", "獲得する", "主張する", "拡大する"}
+    for _ in range(20):
+        quiz = build_quiz(store)
+        if quiz.word.part_of_speech != "動詞":
+            continue
+        assert set(quiz.choices) <= verbs
+
+
+def test_同じ品詞が足りなければ他の品詞で補充する(store):
+    """選択肢が減って出題できないより、少し易しい方がマシ"""
+    store.add_word("postpone", "延期する", part_of_speech="動詞")
+    for english, japanese in [("apple", "りんご"), ("residue", "残り"), ("interim", "合間")]:
+        store.add_word(english, japanese, part_of_speech="名詞")
+
+    for _ in range(20):
+        quiz = build_quiz(store)
+        if quiz.word.english == "postpone":
+            assert len(quiz.choices) == 4
+
+
+def test_品詞が未設定でも出題できる(store):
+    """Phase 3より前に登録した単語は品詞がNULLのことがある"""
+    store.add_word("postpone", "延期する")
+    store.add_word("apple", "りんご")
+    store.add_word("residue", "残り")
+    store.add_word("interim", "合間")
+
+    quiz = build_quiz(store)
+
+    assert len(quiz.choices) == 4
+    assert quiz.choices[quiz.correct_index] == quiz.word.japanese

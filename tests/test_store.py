@@ -96,6 +96,47 @@ def test_全て学習済みなら次回復習が最も近い単語が選ばれ�
     assert store.get_next_word().english == "abandon"
 
 
+def test_誤答候補は同じ品詞を優先する(store):
+    target = store.add_word("postpone", "延期する", part_of_speech="動詞")
+    store.add_word("acquire", "獲得する", part_of_speech="動詞")
+    store.add_word("assert", "主張する", part_of_speech="動詞")
+    store.add_word("apple", "りんご", part_of_speech="名詞")
+
+    meanings = store.get_distractor_meanings(target, limit=2, part_of_speech="動詞")
+
+    assert set(meanings) <= {"獲得する", "主張する"}
+    assert len(meanings) == 2
+
+
+def test_同じ品詞が足りなければ他の品詞で補充する(store):
+    target = store.add_word("postpone", "延期する", part_of_speech="動詞")
+    store.add_word("acquire", "獲得する", part_of_speech="動詞")
+    store.add_word("apple", "りんご", part_of_speech="名詞")
+    store.add_word("residue", "残り", part_of_speech="名詞")
+
+    meanings = store.get_distractor_meanings(target, limit=3, part_of_speech="動詞")
+
+    assert len(meanings) == 3
+    assert "獲得する" in meanings
+
+
+def test_補充された誤答が重複しない(store):
+    target = store.add_word("postpone", "延期する", part_of_speech="動詞")
+    store.add_word("acquire", "獲得する", part_of_speech="動詞")
+    store.add_word("apple", "りんご", part_of_speech="名詞")
+
+    meanings = store.get_distractor_meanings(target, limit=3, part_of_speech="動詞")
+
+    assert len(meanings) == len(set(meanings))
+
+
+def test_品詞を指定しなければ従来どおり全体から選ぶ(store):
+    target = store.add_word("postpone", "延期する", part_of_speech="動詞")
+    store.add_word("apple", "りんご", part_of_speech="名詞")
+
+    assert store.get_distractor_meanings(target, limit=3) == ["りんご"]
+
+
 def test_誤答候補に正解の単語は含まれない(store):
     target = store.add_word("postpone", "延期する")
     store.add_word("abandon", "見捨てる")

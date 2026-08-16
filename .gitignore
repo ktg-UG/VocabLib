@@ -62,6 +62,10 @@ out/
 .vercel/
 *.tsbuildinfo
 
+# 個人メモ・一時ファイル（設計書やdevlogに転記するので追跡しない）
+memo.txt
+tmp.txt
+
 # ログ
 *.log
 

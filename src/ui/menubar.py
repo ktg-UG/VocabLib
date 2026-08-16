@@ -47,6 +47,7 @@ class VocabLibApp(rumps.App):
             self.auto_item,
             rumps.separator,
             rumps.MenuItem("単語を追加...", callback=self.add_word),
+            # 単語一覧はWeb側へ移すまでの繋ぎ（役割分担はSPEC 1.4を参照）
             rumps.MenuItem("単語一覧...", callback=self.list_words),
             rumps.separator,
             rumps.MenuItem("統計...", callback=self.show_stats),

@@ -25,23 +25,14 @@ from AppKit import (
 )
 from Foundation import NSObject
 
+from ..db.store import PARTS_OF_SPEECH
 from ..llm import WordInfo
 
 # プルダウンの選択肢。自由入力だと表記ゆれ（動詞 / 他動詞 / 【動】…）が起きて
 # 将来の集計が効かなくなるため固定する。
+# 品詞そのものの一覧は一括インポートとも共有する（db.store が正）。
 POS_UNSET = "（未設定）"
-POS_OPTIONS = [
-    POS_UNSET,
-    "名詞",
-    "動詞",
-    "形容詞",
-    "副詞",
-    "前置詞",
-    "接続詞",
-    "代名詞",
-    "間投詞",
-    "熟語",
-]
+POS_OPTIONS = [POS_UNSET, *PARTS_OF_SPEECH]
 
 TAG_EDIT_ENGLISH = 0
 TAG_EDIT_JAPANESE = 1

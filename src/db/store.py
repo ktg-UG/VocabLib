@@ -39,6 +39,22 @@ class Word:
     example_sentence: str | None = None
 
 
+# 品詞の正式な選択肢。自由入力だと表記ゆれ（動詞 / 他動詞 / 【動】…）が起き、
+# 4択の誤答を同じ品詞から選ぶ処理（get_distractor_meanings）が効かなくなるため、
+# UI のプルダウンも一括インポートもこの1箇所を参照する。
+PARTS_OF_SPEECH = (
+    "名詞",
+    "動詞",
+    "形容詞",
+    "副詞",
+    "前置詞",
+    "接続詞",
+    "代名詞",
+    "間投詞",
+    "熟語",
+)
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -187,16 +203,50 @@ class Store:
                     return _to_word(row)
         return None
 
-    def get_distractor_meanings(self, exclude_word_id: str, limit: int = 3) -> list[str]:
-        """4択の誤答候補として、他の単語の和訳を取得する"""
+    def get_distractor_meanings(
+        self,
+        exclude_word_id: str,
+        limit: int = 3,
+        part_of_speech: str | None = None,
+    ) -> list[str]:
+        """4択の誤答候補として、他の単語の和訳を取得する。
+
+        `part_of_speech` を指定すると同じ品詞の単語を優先して集める。
+        品詞が混ざると「動詞の問題に名詞の選択肢」となり、意味を知らなくても
+        消去法で正解できてしまうため。
+
+        同じ品詞だけで足りなければ品詞を問わず補充する
+        （選択肢が減って出題できないより、少し易しい方がマシ）。
+        """
         with self._lock:
-            rows = self._conn.execute(
-                """SELECT DISTINCT japanese FROM words
-                   WHERE deleted = 0 AND id != ?
-                   ORDER BY RANDOM() LIMIT ?""",
-                (exclude_word_id, limit),
-            ).fetchall()
-        return [r["japanese"] for r in rows]
+            meanings: list[str] = []
+
+            if part_of_speech:
+                rows = self._conn.execute(
+                    """SELECT DISTINCT japanese FROM words
+                       WHERE deleted = 0 AND id != ? AND part_of_speech = ?
+                       ORDER BY RANDOM() LIMIT ?""",
+                    (exclude_word_id, part_of_speech, limit),
+                ).fetchall()
+                meanings = [r["japanese"] for r in rows]
+
+            if len(meanings) < limit:
+                exclusion = ""
+                params: list = [exclude_word_id]
+                if meanings:
+                    exclusion = f"AND japanese NOT IN ({','.join('?' * len(meanings))})"
+                    params.extend(meanings)
+                params.append(limit - len(meanings))
+
+                rows = self._conn.execute(
+                    f"""SELECT DISTINCT japanese FROM words
+                        WHERE deleted = 0 AND id != ? {exclusion}
+                        ORDER BY RANDOM() LIMIT ?""",
+                    params,
+                ).fetchall()
+                meanings.extend(r["japanese"] for r in rows)
+
+        return meanings
 
     # ── 回答の記録 ───────────────────────────────────────────────────────
 

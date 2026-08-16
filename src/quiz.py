@@ -42,7 +42,13 @@ def build_quiz(store: Store, choice_count: int = 4) -> Quiz | None:
     if word is None:
         return None
 
-    distractors = store.get_distractor_meanings(word.id, limit=choice_count - 1)
+    # 同じ品詞の単語から誤答を選ぶ。品詞が混ざると消去法で正解できてしまい、
+    # SM-2が「覚えた」と誤判定する
+    distractors = store.get_distractor_meanings(
+        word.id,
+        limit=choice_count - 1,
+        part_of_speech=word.part_of_speech,
+    )
 
     # 別の単語に正解と同じ和訳が登録されている場合、選択肢に正解が2つ並んでしまう。
     # （例: 「run=走る」と「dash=走る」）ここで取り除く。
