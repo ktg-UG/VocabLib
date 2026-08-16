@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 
 import type { AddWordState } from "@/components/AddWordForm";
+import type { EditWordState } from "@/components/WordsView";
 import { normalizeTag, parseWordInput } from "@/lib/tags";
 import { createClient } from "@/lib/supabase/server";
 
@@ -63,4 +64,81 @@ export async function addWord(
 
   revalidatePath("/words");
   return { added: `${english} — ${japanese}` };
+}
+
+
+/**
+ * 単語を編集する。
+ *
+ * **英単語は変更させない。** 綴りが変わるのは実質「別の単語」であり、
+ * 過去の回答履歴（answer_log）が別語の記録として残ってしまう。
+ * 綴りを間違えたときは削除して登録し直す。
+ */
+export async function updateWord(
+  _state: EditWordState,
+  formData: FormData,
+): Promise<EditWordState> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "ログインが必要です。" };
+
+  const id = String(formData.get("id") ?? "");
+  const japanese = String(formData.get("japanese") ?? "").trim();
+  const partOfSpeech = String(formData.get("part_of_speech") ?? "").trim();
+  const tag = normalizeTag(String(formData.get("tag") ?? ""));
+  const example = String(formData.get("example_sentence") ?? "").trim();
+
+  if (!id) return { error: "対象の単語が特定できません。" };
+  if (!japanese) return { error: "和訳は必須です。" };
+
+  const { error } = await supabase
+    .from("words")
+    .update({
+      japanese,
+      part_of_speech: partOfSpeech || null,
+      tag,
+      example_sentence: example || null,
+      // サーバー時計で作る。ブラウザの時計がずれていると同期のLWWで
+      // Macの古い値に負け、この編集が消える（SPEC 12.6）
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", id);
+
+  if (error) return { error: `保存できませんでした: ${error.message}` };
+
+  revalidatePath("/words");
+  return { saved: true };
+}
+
+/**
+ * 単語を削除する（論理削除）。
+ *
+ * 行は残して `deleted = true` を立てる。物理削除すると
+ * 「updated_at が新しい行」を拾う同期にはMacへ何も届かず、
+ * 単語がMacに残ったまま次のpushで復活する。
+ */
+export async function deleteWord(
+  _state: EditWordState,
+  formData: FormData,
+): Promise<EditWordState> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "ログインが必要です。" };
+
+  const id = String(formData.get("id") ?? "");
+  if (!id) return { error: "対象の単語が特定できません。" };
+
+  const { error } = await supabase
+    .from("words")
+    .update({ deleted: true, updated_at: new Date().toISOString() })
+    .eq("id", id);
+
+  if (error) return { error: `削除できませんでした: ${error.message}` };
+
+  revalidatePath("/words");
+  return { saved: true };
 }

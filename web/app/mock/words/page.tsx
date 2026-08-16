@@ -1,10 +1,16 @@
 import { notFound } from "next/navigation";
 
 import { Shell } from "@/components/Shell";
-import { WordsView } from "@/components/WordsView";
+import { WordsView, type EditWordState } from "@/components/WordsView";
 import { mockData } from "@/lib/mock";
 
 export const dynamic = "force-dynamic";
+
+/** モックでは保存しない。編集フォームの見た目だけ確認できればよい */
+async function noop(): Promise<EditWordState> {
+  "use server";
+  return { error: "モック画面では保存しません（本番の /words で動きます）。" };
+}
 
 export default function MockWords() {
   if (process.env.NODE_ENV === "production") notFound();
@@ -13,7 +19,12 @@ export default function MockWords() {
 
   return (
     <Shell email="モックデータ（デザイン検討用）" current="words" base="/mock">
-      <WordsView words={words} records={records} />
+      <WordsView
+        words={words}
+        records={records}
+        onUpdate={noop}
+        onDelete={noop}
+      />
     </Shell>
   );
 }

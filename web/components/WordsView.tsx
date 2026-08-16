@@ -1,6 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useActionState, useMemo, useState } from "react";
+
+import { PARTS_OF_SPEECH } from "@/components/AddWordForm";
 
 import type { RecordRow, WordRow } from "@/lib/types";
 import {
@@ -20,12 +22,24 @@ import {
  * 表は「英単語と和訳だけ」にしない。一覧を眺めたときに
  * **どれが弱いか・いつ復習が来るか**が分かることに価値がある。
  */
+export type EditWordState = { error?: string; saved?: boolean };
+
+type WordAction = (
+  state: EditWordState,
+  formData: FormData,
+) => Promise<EditWordState>;
+
 export function WordsView({
   words,
   records,
+  onUpdate,
+  onDelete,
 }: {
   words: WordRow[];
   records: RecordRow[];
+  /** 省略するとモック（読み取り専用）として動く */
+  onUpdate?: WordAction;
+  onDelete?: WordAction;
 }) {
   const [query, setQuery] = useState("");
   const [tag, setTag] = useState<string | null>(null);
@@ -82,6 +96,8 @@ export function WordsView({
               onToggle={() =>
                 setOpenId(openId === summary.word.id ? null : summary.word.id)
               }
+              onUpdate={onUpdate}
+              onDelete={onDelete}
             />
           ))}
         </ul>
@@ -100,10 +116,14 @@ function WordRowItem({
   summary,
   open,
   onToggle,
+  onUpdate,
+  onDelete,
 }: {
   summary: WordSummary;
   open: boolean;
   onToggle: () => void;
+  onUpdate?: WordAction;
+  onDelete?: WordAction;
 }) {
   const { word, accuracy, seen, correct, dueInDays } = summary;
 
@@ -129,24 +149,34 @@ function WordRowItem({
         </span>
       </button>
 
-      {open && (
-        <div className="grid gap-2 pb-3 pl-1 text-xs text-ink-mute">
-          <div className="flex flex-wrap gap-x-5 gap-y-1">
-            <span>品詞: {word.part_of_speech ?? "未設定"}</span>
-            <span>
-              成績: {correct} / {seen}問
-              {accuracy !== null && `（${Math.round(accuracy)}%）`}
-            </span>
-          </div>
-          <p className="text-ink-mute">
-            {word.example_sentence ?? (
-              <span className="text-ink-weak">
-                例文はまだありません（不正解のときに生成されます）
+      {open &&
+        (onUpdate && onDelete ? (
+          <EditForm
+            word={word}
+            seen={seen}
+            correct={correct}
+            accuracy={accuracy}
+            onUpdate={onUpdate}
+            onDelete={onDelete}
+          />
+        ) : (
+          <div className="grid gap-2 pb-3 pl-1 text-xs text-ink-mute">
+            <div className="flex flex-wrap gap-x-5 gap-y-1">
+              <span>品詞: {word.part_of_speech ?? "未設定"}</span>
+              <span>
+                成績: {correct} / {seen}問
+                {accuracy !== null && `（${Math.round(accuracy)}%）`}
               </span>
-            )}
-          </p>
-        </div>
-      )}
+            </div>
+            <p>
+              {word.example_sentence ?? (
+                <span className="text-ink-weak">
+                  例文はまだありません（不正解のときに生成されます）
+                </span>
+              )}
+            </p>
+          </div>
+        ))}
     </li>
   );
 }
@@ -249,3 +279,141 @@ function TagChip({
     </button>
   );
 }
+
+
+/**
+ * 行を開いたときの編集フォーム
+ *
+ * 英単語の入力欄を置いていないのは意図的。綴りを変えるのは実質「別の単語」で、
+ * 過去の回答履歴が別語の記録として残ってしまうため、削除して登録し直す。
+ */
+function EditForm({
+  word,
+  seen,
+  correct,
+  accuracy,
+  onUpdate,
+  onDelete,
+}: {
+  word: WordRow;
+  seen: number;
+  correct: number;
+  accuracy: number | null;
+  onUpdate: WordAction;
+  onDelete: WordAction;
+}) {
+  const [updateState, update, updating] = useActionState(onUpdate, {});
+  const [deleteState, remove, removing] = useActionState(onDelete, {});
+  const [confirming, setConfirming] = useState(false);
+
+  const error = updateState.error ?? deleteState.error;
+
+  return (
+    <div className="pb-4 pl-1">
+      <p className="mb-3 text-xs text-ink-weak">
+        成績 {correct} / {seen}問
+        {accuracy !== null && `（${Math.round(accuracy)}%）`}
+        {"　"}登録 {word.created_at.slice(0, 10)}
+      </p>
+
+      <form action={update} className="grid gap-3 sm:grid-cols-2">
+        <input type="hidden" name="id" value={word.id} />
+
+        <label className="flex flex-col gap-1 sm:col-span-2">
+          <span className="text-[11px] text-ink-weak">和訳</span>
+          <input
+            name="japanese"
+            defaultValue={word.japanese}
+            required
+            className={editInput}
+          />
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] text-ink-weak">品詞</span>
+          <select
+            name="part_of_speech"
+            defaultValue={word.part_of_speech ?? ""}
+            className={editInput}
+          >
+            <option value="">未設定</option>
+            {PARTS_OF_SPEECH.map((pos) => (
+              <option key={pos} value={pos}>
+                {pos}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] text-ink-weak">タグ</span>
+          <input name="tag" defaultValue={word.tag} className={editInput} />
+        </label>
+
+        <label className="flex flex-col gap-1 sm:col-span-2">
+          <span className="text-[11px] text-ink-weak">例文</span>
+          <textarea
+            name="example_sentence"
+            defaultValue={word.example_sentence ?? ""}
+            rows={2}
+            placeholder="不正解のときに自動生成されます"
+            className={editInput}
+          />
+        </label>
+
+        <div className="flex items-center gap-2 sm:col-span-2">
+          <button
+            type="submit"
+            disabled={updating}
+            className="rounded-md bg-accent px-4 py-1.5 text-xs font-medium text-surface-raised transition hover:opacity-90 disabled:opacity-40"
+          >
+            {updating ? "保存中..." : "保存"}
+          </button>
+          {updateState.saved && !updating && (
+            <span className="text-xs text-positive">保存しました</span>
+          )}
+          <span className="flex-1" />
+          {confirming ? (
+            <>
+              <span className="text-xs text-ink-mute">削除しますか？</span>
+              <button
+                type="button"
+                onClick={() => setConfirming(false)}
+                className="rounded-md border border-border px-3 py-1.5 text-xs text-ink-mute"
+              >
+                やめる
+              </button>
+              <button
+                type="submit"
+                formAction={remove}
+                disabled={removing}
+                className="rounded-md bg-negative px-3 py-1.5 text-xs font-medium text-surface-raised disabled:opacity-40"
+              >
+                {removing ? "削除中..." : "削除する"}
+              </button>
+            </>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirming(true)}
+              className="rounded-md border border-border px-3 py-1.5 text-xs text-negative transition hover:bg-negative/5"
+            >
+              削除
+            </button>
+          )}
+        </div>
+      </form>
+
+      {error && (
+        <p className="mt-2 text-xs text-negative">{error}</p>
+      )}
+      <p className="mt-2 text-[11px] text-ink-weak">
+        英単語は変更できません。綴りが違う場合は削除して登録し直してください
+        （回答履歴が別の単語の記録として残ってしまうため）。
+      </p>
+    </div>
+  );
+}
+
+const editInput =
+  "w-full rounded-md border border-border bg-surface-raised px-2.5 py-1.5 text-sm placeholder:text-ink-weak focus:border-accent focus:outline-none";

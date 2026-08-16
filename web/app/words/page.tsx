@@ -2,8 +2,13 @@ import { redirect } from "next/navigation";
 
 import { ErrorPanel, Shell } from "@/components/Shell";
 import { WordsView } from "@/components/WordsView";
+
+import { deleteWord, updateWord } from "./actions";
 import { fetchDashboardData } from "@/lib/supabase/data";
 import { createClient } from "@/lib/supabase/server";
+
+// 編集・削除の Server Action はこのページから呼ばれる
+export const maxDuration = 30;
 
 // 毎回最新のデータを見たいので、ビルド時に固定させない。
 export const dynamic = "force-dynamic";
@@ -43,7 +48,12 @@ export default async function WordsPage() {
 
   return (
     <Shell email={user.email} current="words">
-      <WordsView words={words} records={records} />
+      <WordsView
+        words={words}
+        records={records}
+        onUpdate={updateWord}
+        onDelete={deleteWord}
+      />
     </Shell>
   );
 }
