@@ -4,6 +4,7 @@ import "server-only";
  * Gemini 呼び出し（サーバー専用）
  *
  * **Macとの決定的な違い: 2段目が無い。**
+ * 落ちる先が無いぶん、一時的な失敗には Mac より粘る（最大3回）。
  * Macは Gemini → Ollama → ローカル生成 の3段だが（SPEC 12.5）、Ollamaは
  * 開発者のMacの localhost:11434 で動いており、Vercelのサーバーからは到達できない。
  * ここでは失敗を正直に返し、手入力してもらう。品質の低い文字列をでっち上げても、
@@ -20,6 +21,19 @@ const ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/models";
 const MAX_MEANING_LENGTH = 40;
 const MAX_POS_LENGTH = 10;
 
+/**
+ * 一時的な障害を表すステータス。**混雑（503）は課金とは無関係に起きる。**
+ * 実測では同じ呼び出しを5回投げて1回だけ503、残り4回は成功だった。
+ * しかも503は待たずに即返るので、1回で諦めるのは早すぎる。
+ *
+ * Webには2段目（Ollama）が無いので、Macより諦めが悪い方がよい。
+ */
+const TRANSIENT_STATUSES = new Set([429, 500, 502, 503, 504]);
+const MAX_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 700;
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
 /** キー未設定でもアプリは動く。オートフィルのボタンを無効にするだけ */
 export function isGeminiConfigured(): boolean {
   return Boolean(process.env.GEMINI_API_KEY?.trim());
@@ -34,35 +48,53 @@ async function complete(prompt: string, timeoutMs = 20_000): Promise<string | nu
   const apiKey = process.env.GEMINI_API_KEY?.trim();
   if (!apiKey) return null;
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-  try {
-    const response = await fetch(`${ENDPOINT}/${MODEL}:generateContent`, {
-      method: "POST",
-      // キーはヘッダーで送る。URLに入れるとログや履歴に残りやすい
-      headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
-      body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
-      signal: controller.signal,
-    });
+    try {
+      const response = await fetch(`${ENDPOINT}/${MODEL}:generateContent`, {
+        method: "POST",
+        // キーはヘッダーで送る。URLに入れるとログや履歴に残りやすい
+        headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
+        body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+        signal: controller.signal,
+      });
 
-    if (!response.ok) {
-      // 429 はクォータ超過、503 はGoogle側の混雑。どちらも呼び出し側で
-      // 「取得できませんでした」として扱う（握りつぶさずログには残す）
-      console.warn(`Gemini 呼び出し失敗: ${response.status} ${await response.text()}`);
+      if (!response.ok) {
+        const body = await response.text();
+        if (attempt < MAX_ATTEMPTS && TRANSIENT_STATUSES.has(response.status)) {
+          console.info(
+            `Gemini 一時エラー（${attempt}回目 / ${response.status}）。再試行します`,
+          );
+          await sleep(RETRY_DELAY_MS * attempt);
+          continue;
+        }
+        console.warn(`Gemini 呼び出し失敗: ${response.status} ${body}`);
+        return null;
+      }
+
+      const data = await response.json();
+      const text: unknown =
+        data?.candidates?.[0]?.content?.parts
+          ?.map((p: { text?: string }) => p.text)
+          .join("");
+      return typeof text === "string" && text.trim() ? text.trim() : null;
+    } catch (error) {
+      // タイムアウト（abort）もここに来る。再試行の価値があるので同じ扱いにする
+      if (attempt < MAX_ATTEMPTS) {
+        console.info(`Gemini 呼び出しエラー（${attempt}回目）。再試行します:`, error);
+        await sleep(RETRY_DELAY_MS * attempt);
+        continue;
+      }
+      console.warn("Gemini 呼び出し失敗:", error);
       return null;
+    } finally {
+      clearTimeout(timer);
     }
-
-    const data = await response.json();
-    const text: unknown =
-      data?.candidates?.[0]?.content?.parts?.map((p: { text?: string }) => p.text).join("");
-    return typeof text === "string" && text.trim() ? text.trim() : null;
-  } catch (error) {
-    console.warn("Gemini 呼び出し失敗:", error);
-    return null;
-  } finally {
-    clearTimeout(timer);
   }
+
+  return null;
 }
 
 /**

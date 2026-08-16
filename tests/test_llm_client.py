@@ -3,9 +3,11 @@
 偽のProviderを注入するため、ネットワークにもOllamaにも触らない。
 """
 import time
+from types import SimpleNamespace
 
 from src.llm import client as client_module
 from src.llm.client import LLMClient, WordInfo
+from src.llm.gemini import GeminiProvider, _is_transient
 
 GOOD_EXAMPLE = "He postponed the meeting. — 彼は会議を延期した。"
 GOOD_JSON = '{"japanese": "延期する", "part_of_speech": "動詞"}'
@@ -171,3 +173,69 @@ def test_可用性判定で例外が出てもクラッシュしない():
     result = LLMClient([Broken(), healthy]).generate_example_sentence("postpone", "延期する")
 
     assert result == GOOD_EXAMPLE
+
+
+# ── Gemini の一時エラーへのリトライ ────────────────────────────────────────
+
+class _FlakyClient:
+    """指定回数だけ例外を投げ、その後は成功する偽のgoogle-genaiクライアント"""
+
+    def __init__(self, failures, error):
+        self.failures = failures
+        self.error = error
+        self.calls = 0
+        self.models = self
+
+    def generate_content(self, **kwargs):
+        self.calls += 1
+        if self.calls <= self.failures:
+            raise self.error
+        return SimpleNamespace(text="  こんにちは  ")
+
+
+def _provider_with(monkeypatch, fake):
+    """GeminiProvider にクライアントを差し込む（ネットワークに触らない）"""
+    provider = GeminiProvider(api_key="dummy", timeout=10.0)
+    monkeypatch.setattr(provider, "_client_for", lambda seconds: fake)
+    monkeypatch.setattr("src.llm.gemini.time.sleep", lambda _: None)
+    return provider
+
+
+def test_混雑503は再試行して成功する(monkeypatch):
+    """503は待たずに即返り、次の呼び出しは通ることが多い。
+    1回で2段目に落とすと「課金しているのにGeminiが機能しない」状態になる"""
+    fake = _FlakyClient(1, RuntimeError("503 UNAVAILABLE. high demand"))
+
+    result = _provider_with(monkeypatch, fake).complete("prompt")
+
+    assert result == "こんにちは"
+    assert fake.calls == 2
+
+
+def test_再試行しても駄目なら諦めて次の段へ渡す(monkeypatch):
+    """粘りすぎると「LLMが遅い」問題に化けるので、リトライは1回だけ"""
+    fake = _FlakyClient(99, RuntimeError("503 UNAVAILABLE"))
+
+    result = _provider_with(monkeypatch, fake).complete("prompt")
+
+    assert result is None
+    assert fake.calls == 2
+
+
+def test_一時的でないエラーは再試行しない(monkeypatch):
+    """400（デッドラインが短すぎる等）は投げ直しても同じ結果にしかならない"""
+    fake = _FlakyClient(99, RuntimeError("400 INVALID_ARGUMENT"))
+
+    result = _provider_with(monkeypatch, fake).complete("prompt")
+
+    assert result is None
+    assert fake.calls == 1
+
+
+def test_一時エラーの判定はメッセージで行う():
+    """google-genai の例外型はバージョンで変わるため型では判定しない"""
+    assert _is_transient(RuntimeError("503 UNAVAILABLE"))
+    assert _is_transient(RuntimeError("429 RESOURCE_EXHAUSTED"))
+    assert _is_transient(RuntimeError("500 INTERNAL"))
+    assert not _is_transient(RuntimeError("400 INVALID_ARGUMENT"))
+    assert not _is_transient(RuntimeError("404 NOT_FOUND"))

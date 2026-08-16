@@ -6,6 +6,7 @@ APIキーが未設定なら `is_available()` が False を返し、この段は�
 from __future__ import annotations
 
 import logging
+import time
 
 from .. import config
 
@@ -15,6 +16,27 @@ _LOGGER = logging.getLogger(__name__)
 # これ未満を送ると 400 INVALID_ARGUMENT で即座に弾かれ、
 # 「速く諦めるつもりが1段目を丸ごと失う」という結果になる。
 MIN_TIMEOUT_SECONDS = 10.0
+
+# 一時的な障害を表すステータス。**混雑（503）は課金とは無関係に起きる。**
+# 実測すると同じ呼び出しを5回投げて1回だけ503が返り、残り4回は成功した。
+# しかも503は待たずに即返ってくるので、1回失敗しただけで2段目に落とすのは早すぎる。
+_TRANSIENT_MARKERS = ("503", "UNAVAILABLE", "500", "INTERNAL", "429", "RESOURCE_EXHAUSTED")
+
+# リトライは1回だけ。粘りすぎると「LLMが遅い」問題に化けるので、
+# 駄目なら素直に次の段（Ollama）へ渡す。
+MAX_ATTEMPTS = 2
+RETRY_DELAY_SECONDS = 0.7
+
+
+def _is_transient(error: Exception) -> bool:
+    """もう一度投げれば通る見込みのあるエラーか。
+
+    google-genai の例外型はバージョンで変わるため、型ではなく
+    メッセージに含まれるステータスで判定する（型で書くとSDK更新で黙って
+    リトライしなくなる）。
+    """
+    text = str(error)
+    return any(marker in text for marker in _TRANSIENT_MARKERS)
 
 
 class GeminiProvider:
@@ -43,19 +65,30 @@ class GeminiProvider:
 
         requested = self._default_timeout if timeout is None else timeout
         seconds = max(requested, MIN_TIMEOUT_SECONDS)
-        try:
-            client = self._client_for(seconds)
-            response = client.models.generate_content(
-                model=self._model,
-                contents=prompt,
-                config=_generation_config(),
-            )
-        except Exception as e:
-            _LOGGER.warning("Gemini 呼び出し失敗: %s", e)
-            return None
 
-        text = getattr(response, "text", None)
-        return text.strip() if text else None
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            try:
+                client = self._client_for(seconds)
+                response = client.models.generate_content(
+                    model=self._model,
+                    contents=prompt,
+                    config=_generation_config(),
+                )
+            except Exception as e:
+                if attempt < MAX_ATTEMPTS and _is_transient(e):
+                    _LOGGER.info(
+                        "Gemini 一時エラー（%d回目）。%.1f秒後に再試行: %s",
+                        attempt, RETRY_DELAY_SECONDS, e,
+                    )
+                    time.sleep(RETRY_DELAY_SECONDS)
+                    continue
+                _LOGGER.warning("Gemini 呼び出し失敗: %s", e)
+                return None
+
+            text = getattr(response, "text", None)
+            return text.strip() if text else None
+
+        return None
 
     def _client_for(self, seconds: float):
         key = round(seconds, 3)
