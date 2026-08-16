@@ -2,6 +2,7 @@ import { AccuracyChart } from "@/components/AccuracyChart";
 import { ErrorPanel, Section, Shell } from "@/components/Shell";
 import { DueCountsPanel } from "@/components/DueCountsPanel";
 import { StreakHeatmap } from "@/components/StreakHeatmap";
+import { VolumeChart } from "@/components/VolumeChart";
 import { SummaryCards } from "@/components/SummaryCards";
 import { WeakWordsTable } from "@/components/WeakWordsTable";
 import {
@@ -75,6 +76,10 @@ export default async function Page() {
 
       <Section title="正答率の推移" note="直近30日">
         <AccuracyChart points={daily} />
+      </Section>
+
+      <Section title="学習量" note="直近30日">
+        <VolumeChart points={daily} />
       </Section>
 
       <Section title="学習の記録" note="直近12週">

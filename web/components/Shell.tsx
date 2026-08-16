@@ -14,7 +14,7 @@ export function Shell({
 }: {
   children: React.ReactNode;
   email?: string;
-  current: "dashboard" | "words";
+  current: "dashboard" | "words" | "study" | "new";
   /** モック（/mock）から使うときのプレフィックス。本番は空 */
   base?: string;
 }) {
@@ -45,6 +45,8 @@ export function Shell({
           active={current === "dashboard"}
         />
         <Tab href={`${base}/words`} label="単語" active={current === "words"} />
+        <Tab href={`${base}/study`} label="学習" active={current === "study"} />
+        <Tab href={`${base}/new`} label="追加" active={current === "new"} />
       </nav>
 
       <div className="flex flex-col gap-10">{children}</div>

@@ -58,6 +58,11 @@
   }
 }
 
+:root {
+  /* タグバッジで light-dark() を使うために必要 */
+  color-scheme: light dark;
+}
+
 body {
   background: var(--color-surface);
   color: var(--color-ink);

@@ -5,6 +5,7 @@ import { DueCountsPanel } from "@/components/DueCountsPanel";
 import { Section, Shell } from "@/components/Shell";
 import { StreakHeatmap } from "@/components/StreakHeatmap";
 import { SummaryCards } from "@/components/SummaryCards";
+import { VolumeChart } from "@/components/VolumeChart";
 import { WeakWordsTable } from "@/components/WeakWordsTable";
 import { mockData } from "@/lib/mock";
 import {
@@ -42,6 +43,10 @@ export default function MockDashboard() {
 
       <Section title="正答率の推移" note="直近30日">
         <AccuracyChart points={daily} />
+      </Section>
+
+      <Section title="学習量" note="直近30日">
+        <VolumeChart points={daily} />
       </Section>
 
       <Section title="学習の記録" note="直近12週">
