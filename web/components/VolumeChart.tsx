@@ -12,6 +12,8 @@ import {
 
 import type { DailyPoint } from "@/lib/types";
 
+import { CHART_AXIS_WIDTH } from "./AccuracyChart";
+
 /**
  * 日別の学習量
  *
@@ -28,7 +30,7 @@ export function VolumeChart({ points }: { points: DailyPoint[] }) {
   return (
     <div className="h-40 w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
+        <BarChart data={data} margin={{ top: 8, right: 8, bottom: 4, left: 0 }}>
           <CartesianGrid
             strokeDasharray="3 3"
             stroke="currentColor"
@@ -41,7 +43,13 @@ export function VolumeChart({ points }: { points: DailyPoint[] }) {
             interval="preserveStartEnd"
             minTickGap={24}
           />
-          <YAxis tick={{ fontSize: 11 }} width={44} allowDecimals={false} unit="問" />
+          {/* 目盛りに単位を付けない。「40問」は幅を食って軸からはみ出すので、
+              単位は見出しとツールチップ側で示す */}
+          <YAxis
+            tick={{ fontSize: 11 }}
+            width={CHART_AXIS_WIDTH}
+            allowDecimals={false}
+          />
           <Tooltip
             cursor={{ fill: "var(--color-accent)", opacity: 0.08 }}
             formatter={(value, _name, item) => {

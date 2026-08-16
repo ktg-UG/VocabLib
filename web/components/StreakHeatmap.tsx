@@ -9,7 +9,14 @@
  */
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const CELL = 13; // マス+隙間の1辺(px)。行ラベルの位置合わせに使う
+
+// マス目の実寸。曜日ラベル・月ラベル・マスの3つを同じ数値から組み立てる。
+// ここが1pxでもずれると、行を下るほど曜日ラベルが実際の行から離れていく
+// （最初の実装は CELL=13 と gap-1(4px)+w-3(12px)=16px が食い違い、
+//  7行で18pxずれていた）
+const CELL = 12;
+const GAP = 4;
+const MONTH_ROW = 16;
 
 /**
  * 濃さはアクセント1色の不透明度だけで表す。
@@ -49,12 +56,19 @@ export function StreakHeatmap({
     weeks.push(week);
   }
 
-  // 月が変わる列にだけ月名を出す（全列に出すと数字が潰れて読めない）
+  // 月が変わる列にだけ月名を出す。
+  // ラベルの文字幅（約20px）は1列の幅（16px）より広いので、隣り合う列に
+  // 両方出すと重なって読めなくなる。**3列以上あけて**から次を出す
+  // （月初が列の先頭に来ると 5月・6月 が隣同士になり、実際に潰れていた）
+  const MIN_LABEL_GAP = 3;
+  let lastLabeled = -MIN_LABEL_GAP;
   const monthLabels = weeks.map((week, i) => {
+    if (i === 0) return "";
     const month = Number(week[0].date.slice(5, 7));
-    if (i === 0) return `${month}月`;
     const previous = Number(weeks[i - 1][0].date.slice(5, 7));
-    return month === previous ? "" : `${month}月`;
+    if (month === previous || i - lastLabeled < MIN_LABEL_GAP) return "";
+    lastLabeled = i;
+    return `${month}月`;
   });
 
   return (
@@ -63,47 +77,48 @@ export function StreakHeatmap({
         {`横軸は週（左が${weekCount}週前・右が今週）、縦軸は曜日。1マスが1日で、濃いほどその日の回答数が多い。`}
       </p>
 
-      <div className="overflow-x-auto pb-1">
-        <div className="inline-flex gap-1.5">
-          {/* 曜日ラベル。全部出すと窮屈なので月・水・金だけ */}
-          <div
-            className="flex flex-col text-[10px] text-ink-weak"
-            style={{ marginTop: 16 }}
-          >
-            {["", "月", "", "水", "", "金", ""].map((label, i) => (
-              <span
-                key={i}
-                className="flex items-center"
-                style={{ height: CELL, lineHeight: `${CELL}px` }}
-              >
-                {label}
-              </span>
-            ))}
-          </div>
+      {/* 週数が増えると横に伸びるのでスクロールさせる。
+          曜日ラベルは一緒に流れないよう、スクロール領域の外に置く */}
+      <div className="flex gap-2">
+        <div
+          className="flex shrink-0 flex-col text-[10px] text-ink-weak"
+          style={{ marginTop: MONTH_ROW, gap: GAP }}
+        >
+          {["", "月", "", "水", "", "金", ""].map((label, i) => (
+            <span
+              key={i}
+              style={{ height: CELL, lineHeight: `${CELL}px` }}
+            >
+              {label}
+            </span>
+          ))}
+        </div>
 
-          <div>
-            <div className="flex gap-1">
+        <div className="min-w-0 overflow-x-auto pb-1">
+          <div className="inline-block">
+            <div className="flex" style={{ gap: GAP, height: MONTH_ROW }}>
               {monthLabels.map((label, i) => (
                 <span
                   key={i}
-                  className="text-[10px] text-ink-weak"
-                  style={{ width: 12, height: 16 }}
+                  className="shrink-0 text-[10px] whitespace-nowrap text-ink-weak"
+                  style={{ width: CELL }}
                 >
-                  {label && <span className="whitespace-nowrap">{label}</span>}
+                  {label}
                 </span>
               ))}
             </div>
 
-            <div className="flex gap-1">
+            <div className="flex" style={{ gap: GAP }}>
               {weeks.map((week, i) => (
-                <div key={i} className="flex flex-col gap-1">
+                <div key={i} className="flex shrink-0 flex-col" style={{ gap: GAP }}>
                   {week.map((day) => (
                     <div
                       key={day.date}
                       title={
                         day.count < 0 ? day.date : `${day.date}: ${day.count}問`
                       }
-                      className={`h-3 w-3 rounded-[3px] ${
+                      style={{ width: CELL, height: CELL }}
+                      className={`shrink-0 rounded-[3px] ${
                         day.count < 0 ? "opacity-0" : shade(day.count)
                       }`}
                     />
@@ -118,7 +133,11 @@ export function StreakHeatmap({
       <div className="mt-2 flex items-center gap-1 text-xs text-ink-weak">
         <span>0問</span>
         {[0, 3, 10, 20, 40].map((n) => (
-          <span key={n} className={`h-3 w-3 rounded-[3px] ${shade(n)}`} />
+          <span
+            key={n}
+            style={{ width: CELL, height: CELL }}
+            className={`shrink-0 rounded-[3px] ${shade(n)}`}
+          />
         ))}
         <span>40問+</span>
       </div>

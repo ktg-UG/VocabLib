@@ -16,6 +16,9 @@ import {
 
 import type { DailyPoint } from "@/lib/types";
 
+/** 縦に並ぶグラフで目盛り幅を揃えるための共通値 */
+export const CHART_AXIS_WIDTH = 40;
+
 export function AccuracyChart({ points }: { points: DailyPoint[] }) {
   // 回答が無い日は線を引かない（0%として繋ぐと「全問不正解の日」に見えてしまう）
   const data = points.map((p) => ({
@@ -27,7 +30,7 @@ export function AccuracyChart({ points }: { points: DailyPoint[] }) {
   return (
     <div className="h-56 w-full">
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -20 }}>
+        <LineChart data={data} margin={{ top: 8, right: 8, bottom: 4, left: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="currentColor" opacity={0.12} />
           <XAxis
             dataKey="date"
@@ -35,7 +38,9 @@ export function AccuracyChart({ points }: { points: DailyPoint[] }) {
             interval="preserveStartEnd"
             minTickGap={24}
           />
-          <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} unit="%" width={44} />
+          {/* 下の学習量グラフと目盛りの幅を揃える。ずれると2つのグラフの
+              プロット領域が左右にずれて、同じ日付が縦に並ばなくなる */}
+          <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} unit="%" width={CHART_AXIS_WIDTH} />
           <Tooltip
             // 型注釈は付けない。Recharts 側の型（value は undefined になり得る）を
             // 推論させ、ここで絞り込む
