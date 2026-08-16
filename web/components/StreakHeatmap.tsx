@@ -1,3 +1,7 @@
+"use client";
+
+import { useEffect, useRef } from "react";
+
 /**
  * 学習の記録（GitHubの草のようなカレンダー）
  *
@@ -40,6 +44,15 @@ export function StreakHeatmap({
   /** 何週分さかのぼるか。長い期間は横スクロールで見る */
   weeks?: number;
 }) {
+  // 横に溢れたときは右端（＝直近）を見せる。
+  // 左端から表示すると、1年表示で「直近8週が隠れ、一番古い週から見える」という
+  // 見たいものと逆の状態になる
+  const scroller = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const el = scroller.current;
+    if (el) el.scrollLeft = el.scrollWidth;
+  }, [weekCount]);
+
   const todayMs = Date.parse(`${today}T00:00:00Z`);
   // 週の始まりを日曜に揃える（最終列に今日が入るように後ろから逆算する）
   const todayWeekday = new Date(todayMs).getUTCDay();
@@ -94,7 +107,7 @@ export function StreakHeatmap({
           ))}
         </div>
 
-        <div className="min-w-0 overflow-x-auto pb-1">
+        <div ref={scroller} className="min-w-0 overflow-x-auto pb-1">
           <div className="inline-block">
             <div className="flex" style={{ gap: GAP, height: MONTH_ROW }}>
               {monthLabels.map((label, i) => (

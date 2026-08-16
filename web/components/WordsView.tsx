@@ -154,28 +154,43 @@ function WordRowItem({
 /**
  * 習熟度バー
  *
- * 数字を読ませるより、並べたときに弱い単語が目に飛び込む方が速い。
- * 色は正誤の2色だけを使い、閾値で切り替える（グラデーションにしない）。
+ * **覚えている単語ほど目立たなくする。** 全部を同じ濃さで塗ると、
+ * 8割以上が緑で埋まって「どれが弱いか」がまったく分からない（実際にそうなった）。
+ * 探しているのは弱い単語なので、そこにだけ色を残す。
+ *
+ * バーの長さだけでは 85% と 95% の差が数pxにしかならないため、数値も併記する。
  */
 function MasteryBar({ accuracy }: { accuracy: number | null }) {
   if (accuracy === null) {
     return (
-      <span className="w-14 shrink-0 text-right text-[11px] text-ink-weak">未学習</span>
+      <span className="w-[68px] shrink-0 text-right text-[11px] text-ink-weak">
+        未学習
+      </span>
     );
   }
 
   const color =
-    accuracy >= 80 ? "bg-positive" : accuracy >= 50 ? "bg-accent" : "bg-negative";
+    accuracy >= 80
+      ? "bg-positive/35"   // 覚えている。視界から引っ込める
+      : accuracy >= 50
+        ? "bg-accent"
+        : "bg-negative";
 
   return (
-    <span
-      className="h-1.5 w-14 shrink-0 overflow-hidden rounded-full bg-border"
-      title={`正答率 ${Math.round(accuracy)}%`}
-    >
+    <span className="flex w-[68px] shrink-0 items-center gap-1.5">
+      <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-border">
+        <span
+          className={`block h-full rounded-full ${color}`}
+          style={{ width: `${Math.max(accuracy, 4)}%` }}
+        />
+      </span>
       <span
-        className={`block h-full rounded-full ${color}`}
-        style={{ width: `${Math.max(accuracy, 4)}%` }}
-      />
+        className={`w-7 text-right text-[11px] ${
+          accuracy < 50 ? "text-negative" : "text-ink-weak"
+        }`}
+      >
+        {Math.round(accuracy)}%
+      </span>
     </span>
   );
 }

@@ -41,7 +41,14 @@ export function AddWordForm({
     <form action={formAction} className="flex max-w-lg flex-col gap-4">
       <Field
         label="英単語"
-        hint="`yield #TOEIC` のように書くとタグが付きます"
+        hint={
+          <>
+            <code className="rounded bg-accent-weak px-1 py-0.5 font-mono text-[11px]">
+              yield #TOEIC
+            </code>{" "}
+            のように書くとタグが付きます
+          </>
+        }
       >
         <input
           name="english"
@@ -119,7 +126,7 @@ function Field({
   children,
 }: {
   label: string;
-  hint?: string;
+  hint?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
