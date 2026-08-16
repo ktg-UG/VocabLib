@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { ErrorPanel, Shell } from "@/components/Shell";
 import { WordsView } from "@/components/WordsView";
 
-import { deleteWord, updateWord } from "./actions";
+import { deleteWord, updateWord } from "../actions";
 import { fetchDashboardData } from "@/lib/supabase/data";
 import { createClient } from "@/lib/supabase/server";
 
