@@ -9,7 +9,6 @@
  */
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const WEEKS = 12;
 const CELL = 13; // マス+隙間の1辺(px)。行ラベルの位置合わせに使う
 
 /**
@@ -27,17 +26,20 @@ function shade(count: number): string {
 export function StreakHeatmap({
   counts,
   today,
+  weeks: weekCount = 12,
 }: {
   counts: Record<string, number>;
   today: string; // JSTの今日 "YYYY-MM-DD"
+  /** 何週分さかのぼるか。長い期間は横スクロールで見る */
+  weeks?: number;
 }) {
   const todayMs = Date.parse(`${today}T00:00:00Z`);
   // 週の始まりを日曜に揃える（最終列に今日が入るように後ろから逆算する）
   const todayWeekday = new Date(todayMs).getUTCDay();
-  const startMs = todayMs - (todayWeekday + (WEEKS - 1) * 7) * DAY_MS;
+  const startMs = todayMs - (todayWeekday + (weekCount - 1) * 7) * DAY_MS;
 
   const weeks: { date: string; count: number }[][] = [];
-  for (let w = 0; w < WEEKS; w++) {
+  for (let w = 0; w < weekCount; w++) {
     const week: { date: string; count: number }[] = [];
     for (let d = 0; d < 7; d++) {
       const ms = startMs + (w * 7 + d) * DAY_MS;
@@ -58,7 +60,7 @@ export function StreakHeatmap({
   return (
     <div>
       <p className="mb-2 text-xs text-ink-weak">
-        横軸は週（左が12週前・右が今週）、縦軸は曜日。1マスが1日で、濃いほどその日の回答数が多い。
+        {`横軸は週（左が${weekCount}週前・右が今週）、縦軸は曜日。1マスが1日で、濃いほどその日の回答数が多い。`}
       </p>
 
       <div className="overflow-x-auto pb-1">

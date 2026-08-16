@@ -1,8 +1,6 @@
-import { AccuracyChart } from "@/components/AccuracyChart";
 import { ErrorPanel, Section, Shell } from "@/components/Shell";
 import { DueCountsPanel } from "@/components/DueCountsPanel";
-import { StreakHeatmap } from "@/components/StreakHeatmap";
-import { VolumeChart } from "@/components/VolumeChart";
+import { HistorySection } from "@/components/HistorySection";
 import { SummaryCards } from "@/components/SummaryCards";
 import { WeakWordsTable } from "@/components/WeakWordsTable";
 import {
@@ -12,6 +10,7 @@ import {
   dueCounts,
   jstToday,
   overallStats,
+  toJstDate,
   weakWords,
 } from "@/lib/stats";
 import { fetchDashboardData } from "@/lib/supabase/data";
@@ -58,7 +57,17 @@ export default async function Page() {
 
   const overall = overallStats(answers);
   const streak = currentStreak(answers);
-  const daily = dailyAccuracy(answers, 30);
+  // 1年分を渡し、表示範囲の切り出しはクライアントで行う（期間切替のたびに
+  // 問い合わせないため。日別に畳んであるので365行で済む）
+  const daily = dailyAccuracy(answers, 365);
+  // 記録がいつから貯まっているかを見せる（回答ログは消さないので過去に遡れる）
+  const firstDate =
+    answers.length === 0
+      ? null
+      : toJstDate(
+          answers.reduce((min, a) => (a.answered_at < min ? a.answered_at : min),
+            answers[0].answered_at),
+        );
   const heatmap = Object.fromEntries(answersByDate(answers));
   const weak = weakWords(answers, words, 10);
   const due = dueCounts(records);
@@ -74,17 +83,12 @@ export default async function Page() {
         ]}
       />
 
-      <Section title="正答率の推移" note="直近30日">
-        <AccuracyChart points={daily} />
-      </Section>
-
-      <Section title="学習量" note="直近30日">
-        <VolumeChart points={daily} />
-      </Section>
-
-      <Section title="学習の記録" note="直近12週">
-        <StreakHeatmap counts={heatmap} today={jstToday()} />
-      </Section>
+      <HistorySection
+        points={daily}
+        counts={heatmap}
+        today={jstToday()}
+        firstDate={firstDate}
+      />
 
       <Section title="苦手な単語">
         <WeakWordsTable words={weak} />
