@@ -1,4 +1,5 @@
 import { AccuracyChart } from "@/components/AccuracyChart";
+import { ErrorPanel, Section, Shell } from "@/components/Shell";
 import { DueCountsPanel } from "@/components/DueCountsPanel";
 import { StreakHeatmap } from "@/components/StreakHeatmap";
 import { SummaryCards } from "@/components/SummaryCards";
@@ -36,7 +37,7 @@ export default async function Page() {
     data = await fetchDashboardData(supabase);
   } catch (error) {
     return (
-      <Shell email={user.email}>
+      <Shell email={user.email} current="dashboard">
         <ErrorPanel message={error instanceof Error ? error.message : String(error)} />
       </Shell>
     );
@@ -46,8 +47,8 @@ export default async function Page() {
 
   if (answers.length === 0 && words.length === 0) {
     return (
-      <Shell email={user.email}>
-        <p className="text-sm text-black/60 dark:text-white/60">
+      <Shell email={user.email} current="dashboard">
+        <p className="text-sm text-ink-mute">
           まだデータがありません。Macアプリで単語を登録して同期してください。
         </p>
       </Shell>
@@ -62,7 +63,7 @@ export default async function Page() {
   const due = dueCounts(records);
 
   return (
-    <Shell email={user.email}>
+    <Shell email={user.email} current="dashboard">
       <SummaryCards
         cards={[
           { label: "通算", value: `${overall.total}問`, sub: `正解 ${overall.correct}` },
@@ -88,72 +89,5 @@ export default async function Page() {
         <DueCountsPanel counts={due} />
       </Section>
     </Shell>
-  );
-}
-
-function Shell({
-  children,
-  email,
-}: {
-  children: React.ReactNode;
-  email?: string;
-}) {
-  return (
-    <main className="mx-auto w-full max-w-3xl px-4 py-8 sm:px-6">
-      <header className="mb-6 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold">VocabLib</h1>
-          <p className="text-xs text-black/50 dark:text-white/50">
-            {email ?? "学習ダッシュボード"}
-          </p>
-        </div>
-        <form action="/auth/signout" method="post">
-          <button
-            type="submit"
-            className="rounded-lg border border-black/10 px-3 py-1.5 text-xs text-black/60 transition hover:bg-black/[0.04] dark:border-white/15 dark:text-white/60 dark:hover:bg-white/[0.06]"
-          >
-            ログアウト
-          </button>
-        </form>
-      </header>
-      <div className="flex flex-col gap-8">{children}</div>
-    </main>
-  );
-}
-
-function Section({
-  title,
-  note,
-  children,
-}: {
-  title: string;
-  note?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <section>
-      <h2 className="mb-3 flex items-baseline gap-2 text-sm font-semibold">
-        {title}
-        {note && (
-          <span className="text-xs font-normal text-black/40 dark:text-white/40">
-            {note}
-          </span>
-        )}
-      </h2>
-      {children}
-    </section>
-  );
-}
-
-function ErrorPanel({ message }: { message: string }) {
-  return (
-    <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-4">
-      <p className="text-sm font-semibold text-red-600 dark:text-red-400">
-        データを取得できませんでした
-      </p>
-      <p className="mt-1 text-xs break-words text-black/60 dark:text-white/60">
-        {message}
-      </p>
-    </div>
   );
 }

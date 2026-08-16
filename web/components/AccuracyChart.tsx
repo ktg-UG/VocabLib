@@ -51,7 +51,7 @@ export function AccuracyChart({ points }: { points: DailyPoint[] }) {
           <Line
             type="monotone"
             dataKey="accuracy"
-            stroke="#3b82f6"
+            stroke="var(--color-accent)"
             strokeWidth={2}
             dot={{ r: 2 }}
             connectNulls

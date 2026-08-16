@@ -1,26 +1,67 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/*
+ * デザイントークン
+ *
+ * コンポーネントには生の色を書かず、ここで定義した名前だけを使う。
+ * （`bg-black/[0.02]` のような書き方が散ると、後から一括で変えられなくなる）
+ *
+ * 面・文字・アクセントの段数をあえて少なくしている。増やすほど
+ * 「どれを使うか」の判断が要り、結果として使い分けが崩れるため。
+ */
+@theme {
+  /* 面: 背景 → カード → 罫線 の3段だけ */
+  --color-surface: #fbfbfa;
+  --color-surface-raised: #ffffff;
+  --color-border: #e6e4e0;
+
+  /* 文字: 主・副・弱の3段 */
+  --color-ink: #1c1b19;
+  --color-ink-mute: #5f5c57;
+  --color-ink-weak: #918d86;
+
+  /* アクセント: 彩度を落とした青。面積は小さく使う */
+  --color-accent: #3f5f8f;
+  --color-accent-weak: #eef2f8;
+
+  /* 状態: 正誤の2色のみ */
+  --color-positive: #3d7a5c;
+  --color-negative: #a4544a;
+
+  --font-sans: var(--font-geist-sans), system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), monospace;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
+/*
+ * ダークモード。
+ * 面と文字の役割を入れ替えるだけで、トークン名は変えない。
+ * コンポーネント側に `dark:` を書かなくて済むのが狙い。
+ *
+ * `@theme` はトップレベルにしか書けないので、ここは素のカスタムプロパティで上書きする。
+ * v4のユーティリティは `var(--color-*)` を参照するため、これで色が入れ替わる。
+ */
 @media (prefers-color-scheme: dark) {
   :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+    --color-surface: #16161a;
+    --color-surface-raised: #1e1e23;
+    --color-border: #32323a;
+
+    --color-ink: #eceae6;
+    --color-ink-mute: #a5a29c;
+    --color-ink-weak: #6f6c67;
+
+    --color-accent: #8fadd8;
+    --color-accent-weak: #232934;
+
+    --color-positive: #6fb08c;
+    --color-negative: #d08a80;
   }
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-surface);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  /* 数字が並ぶ画面なので、既定で字幅を揃える */
+  font-variant-numeric: tabular-nums;
 }

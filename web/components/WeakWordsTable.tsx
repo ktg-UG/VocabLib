@@ -3,7 +3,7 @@ import type { WeakWord } from "@/lib/types";
 export function WeakWordsTable({ words }: { words: WeakWord[] }) {
   if (words.length === 0) {
     return (
-      <p className="text-sm text-black/50 dark:text-white/50">
+      <p className="text-sm text-ink-weak">
         まだ間違えた単語がありません。
       </p>
     );
@@ -13,7 +13,7 @@ export function WeakWordsTable({ words }: { words: WeakWord[] }) {
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="text-left text-xs text-black/50 dark:text-white/50">
+          <tr className="border-b border-border text-left text-xs text-ink-weak">
             <th className="pb-2 font-normal">単語</th>
             <th className="pb-2 font-normal">意味</th>
             <th className="pb-2 text-right font-normal">誤答</th>
@@ -24,10 +24,10 @@ export function WeakWordsTable({ words }: { words: WeakWord[] }) {
           {words.map((word) => (
             <tr
               key={word.wordId}
-              className="border-t border-black/5 dark:border-white/10"
+              className="border-b border-border/60"
             >
               <td className="py-2 font-medium">{word.english}</td>
-              <td className="py-2 text-black/70 dark:text-white/70">{word.japanese}</td>
+              <td className="py-2 text-ink-mute">{word.japanese}</td>
               <td className="py-2 text-right tabular-nums">
                 {word.incorrect}/{word.total}
               </td>

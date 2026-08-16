@@ -8,12 +8,16 @@
 const DAY_MS = 24 * 60 * 60 * 1000;
 const WEEKS = 12;
 
+/**
+ * 濃さはアクセント1色の不透明度だけで表す。
+ * 色相を増やすと「青→緑」のような意味の無い変化が生まれるため。
+ */
 function shade(count: number): string {
-  if (count === 0) return "bg-black/[0.06] dark:bg-white/[0.08]";
-  if (count < 3) return "bg-blue-200 dark:bg-blue-900";
-  if (count < 8) return "bg-blue-400 dark:bg-blue-700";
-  if (count < 15) return "bg-blue-500 dark:bg-blue-500";
-  return "bg-blue-600 dark:bg-blue-400";
+  if (count === 0) return "bg-border";
+  if (count < 3) return "bg-accent/25";
+  if (count < 8) return "bg-accent/45";
+  if (count < 15) return "bg-accent/70";
+  return "bg-accent";
 }
 
 export function StreakHeatmap({
@@ -56,7 +60,7 @@ export function StreakHeatmap({
           </div>
         ))}
       </div>
-      <div className="mt-2 flex items-center gap-1 text-xs text-black/50 dark:text-white/50">
+      <div className="mt-2 flex items-center gap-1 text-xs text-ink-weak">
         <span>少</span>
         {[0, 2, 7, 14, 20].map((n) => (
           <span key={n} className={`h-3 w-3 rounded-[3px] ${shade(n)}`} />
