@@ -17,11 +17,11 @@ PC作業中に英単語を自動で出題する、macOSメニューバー常駐�
 
 ### 前提
 
-| 項目 | バージョン |
-|------|-----------|
-| Python | 3.12（`.python-version` で固定） |
-| パッケージ管理 | [uv](https://docs.astral.sh/uv/) |
-| OS | macOS（メニューバー常駐アプリのため） |
+| 項目           | バージョン                            |
+| -------------- | ------------------------------------- |
+| Python         | 3.12（`.python-version` で固定）    |
+| パッケージ管理 | [uv](https://docs.astral.sh/uv/)       |
+| OS             | macOS（メニューバー常駐アプリのため） |
 
 ### インストール
 
@@ -41,25 +41,63 @@ uv sync
 cp .env.example .env
 ```
 
-Phase 1（ローカルDB層）は環境変数なしで動作する。各変数がいつ必要になるかは `.env.example` のコメントを参照。
+環境変数が無くてもアプリは起動する（AI機能とクラウド同期が無効になるだけ）。
+各変数がいつ必要になるかは `.env.example` のコメントを参照。
+
+**`.env` の探索順**（先に見つかった方だけを読む）:
+
+1. `<リポジトリルート>/.env` … 開発中
+2. `~/Library/Application Support/VocabLib/.env` … 配布した `.app`
+
+`.app` からは1が見えない（バンドルの中を指すため）ので、必ず2が使われる。
+起動ログにどちらを読んだかが出る。
 
 ## 実行方法
 
 ### テスト
 
 ```bash
-uv run pytest -v
+uv run pytest -v          # Python
+cd web && npx vitest run  # Web
 ```
 
-### アプリ本体
+### アプリ本体（開発中）
 
-Phase 2（メニューバーUI）で実装予定。
+```bash
+uv run python -m src.main
+```
+
+### アプリ本体（`.app` として使う）
+
+```bash
+uv run python setup.py py2app     # → dist/VocabLib.app
+```
+
+初回だけ次の手順が要る。
+
+1. `dist/VocabLib.app` を `/Applications` へ移動
+2. 設定をコピーする（**鍵は `.app` の中に入れない**）
+
+   ```bash
+   cp .env ~/Library/Application\ Support/VocabLib/.env
+   ```
+3. **右クリック → 開く**（署名していないため、ダブルクリックだと Gatekeeper に止められる）
+4. 自動起動したい場合は システム設定 → 一般 → ログイン項目 に追加する
+
+メニューバー常駐アプリなので **Dock にアイコンは出ない**（`LSUIElement`）。
+
+### Webダッシュボード
+
+https://vocablib.vercel.app
 
 ## データの保存先
 
-| 種類 | パス |
-|------|------|
+すべて `~/Library/Application Support/VocabLib/` にまとまっている。
+
+| 種類       | パス                                                   |
+| ---------- | ------------------------------------------------------ |
 | ローカルDB | `~/Library/Application Support/VocabLib/vocablib.db` |
+| 設定（`.app` 用） | `~/Library/Application Support/VocabLib/.env` |
 
 SQLite形式。`sqlite3` コマンドで直接中身を確認できる。
 

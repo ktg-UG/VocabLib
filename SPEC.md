@@ -4,6 +4,7 @@
 
 | 日付       | 更新内容                         | 担当 |
 | ---------- | -------------------------------- | ---- |
+| 2026-08-16 | Phase 10（`.app` 配布）完了を反映。py2app でのビルド手順を 8.1 に記載し、未確定事項の「`.app` 配布手順」を完了に。7 に `.env` の探索順（リポジトリ → Application Support）と**鍵をバンドルに焼き込まない**方針を追記。12.1 に `launcher.py` / `setup.py` を追加 | UG   |
 | 2026-08-16 | Phase 9（Webの単語管理とデザイン刷新）完了を反映。F-14「Webでの単語管理」を追加し 12.12 を新設（デザイントークン・単語一覧・編集/削除/登録・学習タブ・WebからのLLM呼び出し）。12.8 のRLSを insert/update 追加に更新し、`learning_records` の自動生成トリガーを追加。7.1 に `GEMINI_API_KEY`（`NEXT_PUBLIC_` を付けない）を追加。1.3 のスコープを 1.4 と整合させた | UG   |
 | 2026-08-16 | Phase 8（タグ機能）完了を反映。F-13「タグ」を追加し 12.11 を新設（1語1タグ・`#` 記法・`words.tag` 列・`_migrate()` によるマイグレーション方針）。5.1/5.2 に `tag` 列、12.6 に `tag` の同期を追記。**Macの「単語一覧...」を削除**（SPEC 1.4 の役割分担に従い、一覧はWebに一本化）。12.1 に `src/tags.py` を追記 | UG   |
 | 2026-08-16 | Phase 7 完了を反映。F-12「単語の一括インポート」を追加し、12.10を追加（カンマ区切りで和訳・品詞を直接指定できる書式、4択の誤答を同じ品詞から選ぶ仕様、v1の25語の移行方針）。品詞の正式な一覧を `db.store.PARTS_OF_SPEECH` に集約。9の当てずっぽう対策に品詞フィルタ導入を反映。12.5にGeminiの無料枠実測値（20req/日・5req/分）と有料化（前払い2000円）を追記 | UG   |
@@ -268,14 +269,38 @@ Gemini の呼び出しは Server Action の中だけで行い、`lib/llm/gemini.
 
 テンプレートは `.env.example`。`cp .env.example .env` して使う。`.env` はGit除外。
 
+#### `.env` の探索順（Phase 10）
+
+先に見つかった方**だけ**を読む。
+
+| 順 | 場所 | 使われる場面 |
+| -- | ---- | ------------ |
+| 1 | `<リポジトリルート>/.env` | 開発中 |
+| 2 | `~/Library/Application Support/VocabLib/.env` | 配布した `.app` |
+
+`.app` の `ROOT_DIR` はバンドルの中を指すので1は存在せず、必ず2が使われる。
+つまり**どちらの環境でも、その環境の人が置いたファイルが読まれる**。
+
+逆順にすると、開発中に古い設定ファイルがリポジトリの `.env` を黙って隠す
+（実際に v1 の残骸がそこにあり、Geminiのキーも同期設定も読めない状態になった）。
+
+**鍵を `.app` に焼き込まない。** v1 は `datas=[('.env', '.')]` でバンドルに入れており、
+配布物を渡すとGeminiのキーと `service_role` キーが一緒に渡る状態だった。
+
+どちらを読んだかは**起動ログの1行目に出る**（「設定を読み込みました: ...」）。
+
 ---
 
 ## 8. 運用
 
 ### 8.1 起動・実行方法
 
-- Mac常駐アプリ（現行）: `uv run python -m src.main`
-  - `.app` 化（PyInstaller）は未着手。ログイン項目への登録もこれに含めて後日決定する。
+- Mac常駐アプリ（配布形態）: `dist/VocabLib.app`
+  - ビルド: `uv run python setup.py py2app`（py2app。開発依存）
+  - 初回のみ **右クリック → 開く**（未署名のためGatekeeperに止められる）
+  - 自動起動: システム設定 → 一般 → ログイン項目 に追加
+  - `LSUIElement: True` によりDockに出ない（メニューバーのみ）
+- Mac常駐アプリ（開発時）: `uv run python -m src.main`
 - テスト: `uv run pytest`（Python） / `cd web && npm test`（TypeScript）
 - Web: **https://vocablib.vercel.app**
   - `main` ブランチへの push で Vercel が自動デプロイする
@@ -365,7 +390,9 @@ Gemini の呼び出しは Server Action の中だけで行い、`lib/llm/gemini.
 | `src/ui/add_word_panel.py` | `AddWordPanel`。単語追加の確認フォーム |
 | `src/ui/dialogs.py` | 単語登録フロー・統計 |
 | `src/tools/import_words.py` | 単語の一括インポートCLI（`python -m`） |
-| `src/main.py` | エントリポイント |
+| `src/main.py` | エントリポイント（開発時は `python -m src.main`） |
+| `launcher.py` | `.app` の入口。py2app は指定スクリプトを `__main__` として実行するため、相対importを壊さないようパッケージ経由で呼ぶ |
+| `setup.py` | py2app のビルド設定 |
 | `web/lib/stats.ts` | 統計の集計（純粋関数）。SupabaseもReactもimportしない |
 | `web/lib/supabase/client.ts` | ブラウザ用クライアント（ログインボタン） |
 | `web/lib/supabase/server.ts` | サーバー用クライアント（Cookieからセッションを読む） |
@@ -874,8 +901,8 @@ PostgRESTは1リクエスト1文なので、`words` と `learning_records` へ�
 
 ## 未確定事項（TBD）
 
-- [ ] Mac常駐アプリの `.app` 配布手順（PyInstaller）とログイン項目への登録 — 8.1
-  - 現行は `uv run python -m src.main` で運用（2026-08-15 時点）
+- [x] ~~Mac常駐アプリの `.app` 配布手順とログイン項目への登録~~ — 2026-08-16 完了（8.1）
+  - PyInstallerではなく **py2app** を採用（rumps公式が推奨・macOS専用でよいため）
 - [x] ~~Vercelデプロイ手順の確定~~ — 2026-08-15 完了（8.1・12.8）
 - [ ] 4択の当てずっぽう対策（入力式・出題方向の切替）の要否 — 9
 - [x] ~~UI・ビジュアルの作り込み~~ — 2026-08-16 完了（12.12）

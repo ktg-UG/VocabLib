@@ -12,8 +12,56 @@ from dotenv import load_dotenv
 
 ROOT_DIR = Path(__file__).parent.parent
 
-# .env が無くても load_dotenv はエラーにならない（既定値で動く）
-load_dotenv(ROOT_DIR / ".env")
+# 配布した .app 用の設定ディレクトリ（DBと同じ場所）。
+# **鍵を .app の中に焼き込まない。** v1は `datas=[('.env', '.')]` でバンドルに
+# 入れており、配布物を渡した瞬間にGeminiのキーとSupabaseのservice_roleキーが
+# 一緒に渡る状態だった。service_role はRLSをバイパスするので影響が大きい。
+APP_SUPPORT_DIR = Path.home() / "Library" / "Application Support" / "VocabLib"
+
+
+def find_env_file() -> Path | None:
+    """読み込む `.env` を1つ選ぶ。無ければ None。
+
+    探索順:
+        1. <リポジトリルート>/.env                      … 開発中
+        2. ~/Library/Application Support/VocabLib/.env  … 配布した .app 用
+
+    `.app` にすると `__file__` はバンドルの中（Contents/Resources/...）を指し、
+    そこに `.env` は無い。よって**バンドルでは必ず2が使われる**。
+    開発中は1があるので1が使われる。つまり **どちらの環境でも、
+    その環境の人が置いたファイルが読まれる。**
+
+    逆順（Application Support を先）にすると、開発中に古い設定ファイルが
+    リポジトリの `.env` を黙って隠す。実際 v1 の残骸（2026-02、Google Sheets用）が
+    そこに残っていて、Geminiのキーも同期の設定も読めない状態になった。
+    配布後に `.env` をコピーすると、以後ずっと2つのファイルが並存して
+    「リポジトリ側を直したのに効かない」が起き続ける。
+
+    先に見つかった方だけを読む（両方読むと、どちらが効いているのか
+    分からない状態になる）。
+    """
+    for candidate in (ROOT_DIR / ".env", APP_SUPPORT_DIR / ".env"):
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def load_env() -> Path | None:
+    """`.env` を読み込み、読んだファイルを返す。
+
+    どれも無くてもアプリは起動する（LLMと同期が無効になるだけ）。
+
+    **ここではログを出さない。** このモジュールは `logging.basicConfig()` より
+    先に import されるため、ここで出したログは設定前に捨てられる。
+    読んだファイルは `ENV_FILE` に入れておき、`main.py` が出力する。
+    """
+    env_file = find_env_file()
+    if env_file is not None:
+        load_dotenv(env_file)
+    return env_file
+
+
+ENV_FILE = load_env()
 
 
 def _env_int(name: str, default: int) -> int:

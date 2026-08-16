@@ -22,6 +22,14 @@ def main() -> None:
     for noisy in ("httpx", "httpcore", "google_genai", "urllib3"):
         logging.getLogger(noisy).setLevel(logging.WARNING)
 
+    # どの .env を読んだかを必ず1行出す。`.app` にすると設定ファイルの場所が
+    # 変わるため、「設定したのに効かない」の原因調査がここで終わるようにする
+    if config.ENV_FILE is None:
+        logging.info(".env が見つかりません（既定値で動作します）")
+    else:
+        logging.info("設定を読み込みました: %s", config.ENV_FILE)
+    logging.info("データベース: %s", config.DB_PATH)
+
     store = Store(config.DB_PATH)
     try:
         VocabLibApp(store).run()
